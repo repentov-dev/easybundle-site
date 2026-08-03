@@ -925,6 +925,42 @@ def admin_users_revoke(uid: int):
     return jsonify({"ok": True, "revoked": revoke})
 
 
+@app.post("/api/admin/revoke")
+@admin_required
+def admin_quick_revoke():
+    """Revoke (or restore) a license by email or license key, without the user table."""
+    body = request.get_json(silent=True) or {}
+    revoke = bool(body.get("revoke", True))
+    email = (body.get("email") or "").strip().lower()
+    key = (body.get("license_key") or "").strip().upper()
+
+    if not email and not key:
+        return jsonify({"ok": False, "error": "Provide an email or license key"}), 400
+
+    with db() as conn:
+        if email:
+            row = conn.execute(
+                "SELECT id, email_enc, role FROM users WHERE email_hash = ?",
+                (email_hash(email),),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT id, email_enc, role FROM users WHERE license_key_hash = ?",
+                (license_key_hash(key),),
+            ).fetchone()
+
+        if row is None:
+            return jsonify({"ok": False, "error": "No user found with that email or license key"}), 404
+        if revoke and row["role"] == "admin":
+            return jsonify({"ok": False, "error": "Cannot revoke an admin license"}), 403
+        conn.execute("UPDATE users SET revoked = ? WHERE id = ?", (1 if revoke else 0, row["id"]))
+
+    uid = row["id"]
+    email_out = decrypt_str(row["email_enc"])
+    log_admin("revoke" if revoke else "restore", uid, {"email": email_out, "by": "quick"})
+    return jsonify({"ok": True, "revoked": revoke, "user_id": uid, "email": email_out})
+
+
 @app.post("/api/admin/users/<int:uid>/reset-password")
 @admin_required
 def admin_users_reset_password(uid: int):

@@ -55,6 +55,9 @@
     .flash { font-family: var(--mono); font-size: 13px; margin-top: 12px; }
     .flash.is-ok { color: #3ddc84; }
     .flash.is-error { color: #ff6b6b; }
+    .checkout__submit.is-danger { background: #5a1515; border-color: #ff6b6b; color: #ffd9d9; }
+    .checkout__submit.is-danger:hover { background: #7a1d1d; }
+    .checkout__submit:disabled { opacity: 0.5; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -112,6 +115,20 @@
           <ul class="log-list" id="adminLog"><li style="color:var(--text-muted)">Loading…</li></ul>
         </section>
       </div>
+    </div>
+
+    <div class="admin-card" id="quickRevokeCard">
+      <h2>Quick revoke / restore</h2>
+      <p class="lede">Revoke or restore a license by email or license key — no need to open the table.</p>
+      <form class="checkout__form" id="revokeForm" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end">
+        <div class="checkout__field" style="flex:1; min-width:220px">
+          <label for="rQuery">Email or license key</label>
+          <input id="rQuery" name="query" type="text" autocomplete="off" placeholder="i@am.god or EB-52A9-…" required />
+        </div>
+        <button class="checkout__submit is-danger" type="submit" data-act="revoke" style="min-width:120px">Revoke</button>
+        <button class="checkout__submit" type="submit" data-act="restore" style="min-width:120px">Restore</button>
+        <p class="flash" id="revokeFlash" aria-live="polite"></p>
+      </form>
     </div>
 
     <div class="admin-card">
@@ -281,6 +298,28 @@
     document.getElementById("navLogout").addEventListener("click", async () => {
       await fetch("/api/logout", { method: "POST", credentials: "same-origin" });
       window.location.href = "/account.html";
+    });
+
+    const revokeForm = document.getElementById("revokeForm");
+    const revokeFlash = document.getElementById("revokeFlash");
+    revokeForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const revoke = e.submitter && e.submitter.dataset.act === "restore" ? false : true;      const query = document.getElementById("rQuery").value.trim();
+      const body = { revoke };
+      if (query.includes("@")) body.email = query;
+      else body.license_key = query;
+      const btn = revokeForm.querySelectorAll("button[type=submit]");
+      btn.forEach((b) => (b.disabled = true));
+      const { res, data } = await api("/api/admin/revoke", { method: "POST", body: JSON.stringify(body) });
+      btn.forEach((b) => (b.disabled = false));
+      if (!res.ok || !data.ok) {
+        flash(revokeFlash, data.error || "Request failed", false);
+        return;
+      }
+      flash(revokeFlash, `${revoke ? "Revoked" : "Restored"} ${data.email} (#${data.user_id})`, true);
+      document.getElementById("rQuery").value = "";
+      await loadUsers();
+      await loadLog();
     });
 
     (async () => {
