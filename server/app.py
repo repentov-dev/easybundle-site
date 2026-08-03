@@ -7,8 +7,20 @@ Typical plugin purchase fields collected:
 On purchase:
   - create account (hashed password)
   - generate signed license key
-  - ensure signing key exists in ~/Desktop/key
+  - ensure signing key exists in ~/Desktop/Vibecoding/key
   - email password + license (SMTP or Mail.app / outbox fallback)
+
+Privacy:
+  All personally identifiable data (email, names, company, country, VAT)
+  and license payloads are encrypted at rest with AES-256-GCM. The key is
+  kept in ~/Desktop/Vibecoding/key/easybundle_data.key (0600).
+  Only opaque hashes (email_hash, license_key_hash) are stored in plaintext
+  so accounts can be looked up without revealing the data.
+
+Admin (god mode):
+  The account whose email equals GOD_EMAIL (default i@am.god) is promoted to
+  role 'admin'. Admins can list users, issue/revoke licenses, reset passwords
+  and delete accounts via the /api/admin/* endpoints and /admin.html.
 """
 
 from __future__ import annotations
@@ -25,10 +37,12 @@ import sqlite3
 import string
 from datetime import datetime, timezone
 from email.message import EmailMessage
+from functools import wraps
 from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from flask import Flask, jsonify, request, send_from_directory, session
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -39,13 +53,19 @@ KEY_DIR = Path.home() / "Desktop" / "Vibecoding" / "key"
 PRIVATE_KEY_PATH = KEY_DIR / "easybundle_signing.key"
 PUBLIC_KEY_PATH = KEY_DIR / "easybundle_signing.pub"
 OUTBOX_DIR = KEY_DIR / "outbox"
+DATA_KEY_PATH = KEY_DIR / "easybundle_data.key"
+SESSION_SECRET_PATH = KEY_DIR / "easybundle_session.secret"
 
 PRODUCT = "EASYBUNDLE"
 PLUGINS = ["CAESAR", "CAPSULE", "REFLECT", "SLOPE", "METROOM"]
 BUNDLE_PRICE = os.environ.get("BUNDLE_PRICE", "149")
+GOD_EMAIL = os.environ.get("GOD_EMAIL", "i@am.god").strip().lower()
 
 app = Flask(__name__, static_folder=str(ROOT), static_url_path="")
-app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+)
 
 
 # ── storage ──────────────────────────────────────────────────────────
@@ -54,28 +74,154 @@ def db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+def load_or_create_bytes(path: Path, length: int = 32) -> bytes:
+    KEY_DIR.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        raw = path.read_bytes()
+        if len(raw) == length:
+            return raw
+    blob = secrets.token_bytes(length)
+    path.write_bytes(blob)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return blob
+
+
+app.secret_key = load_or_create_bytes(SESSION_SECRET_PATH)
+
+
+# ── field encryption (AES-256-GCM) ───────────────────────────────────
+
+_data_key = None
+
+
+def data_key() -> bytes:
+    global _data_key
+    if _data_key is None:
+        _data_key = load_or_create_bytes(DATA_KEY_PATH)
+    return _data_key
+
+
+def encrypt_str(plain: str | None) -> str | None:
+    if plain is None:
+        return None
+    nonce = secrets.token_bytes(12)
+    ct = AESGCM(data_key()).encrypt(nonce, plain.encode("utf-8"), None)
+    return base64.urlsafe_b64encode(nonce + ct).decode("ascii")
+
+
+def decrypt_str(token: str | None) -> str | None:
+    if not token:
+        return None
+    raw = base64.urlsafe_b64decode(token.encode("ascii"))
+    nonce, ct = raw[:12], raw[12:]
+    return AESGCM(data_key()).decrypt(nonce, ct, None).decode("utf-8")
+
+
+def email_hash(email: str) -> str:
+    return hashlib.sha256((email or "").strip().lower().encode("utf-8")).hexdigest()
+
+
+def license_key_hash(key: str) -> str:
+    return hashlib.sha256((key or "").strip().upper().encode("utf-8")).hexdigest()
+
+
+# ── schema / migration ───────────────────────────────────────────────
+
+USERS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email_hash TEXT NOT NULL UNIQUE,
+  email_enc TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  first_name_enc TEXT NOT NULL,
+  last_name_enc TEXT NOT NULL,
+  company_enc TEXT,
+  country_enc TEXT NOT NULL,
+  vat_enc TEXT,
+  license_key_hash TEXT NOT NULL UNIQUE,
+  license_key_enc TEXT NOT NULL,
+  license_payload_enc TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'user',
+  revoked INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+)
+"""
+
+ADMIN_LOG_SCHEMA = """
+CREATE TABLE IF NOT EXISTS admin_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor_hash TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target_id INTEGER,
+  detail_enc TEXT,
+  created_at TEXT NOT NULL
+)
+"""
+
+
+def table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def migrate_legacy(conn: sqlite3.Connection) -> None:
+    """Convert a plaintext users table into the encrypted schema."""
+    legacy = "users"
+    if "email_enc" in table_columns(conn, legacy):
+        return
+    if "email" not in table_columns(conn, legacy):
+        return
+
+    conn.execute("DROP TABLE IF EXISTS users_new")
+    conn.execute(USERS_SCHEMA.replace("users", "users_new"))
+    rows = conn.execute(
+        "SELECT * FROM users ORDER BY id"
+    ).fetchall()
+
+    for row in rows:
+        email = (row["email"] or "").strip().lower()
+        license_key = (row["license_key"] or "").strip()
+        role = "admin" if email == GOD_EMAIL else "user"
+        conn.execute(
+            """
+            INSERT INTO users_new (
+              email_hash, email_enc, password_hash,
+              first_name_enc, last_name_enc, company_enc, country_enc, vat_enc,
+              license_key_hash, license_key_enc, license_payload_enc,
+              role, revoked, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+            """,
+            (
+                email_hash(email),
+                encrypt_str(email),
+                row["password_hash"],
+                encrypt_str(row["first_name"]),
+                encrypt_str(row["last_name"]),
+                encrypt_str(row["company"]),
+                encrypt_str(row["country"]),
+                encrypt_str(row["vat"]),
+                license_key_hash(license_key),
+                encrypt_str(license_key),
+                encrypt_str(row["license_payload"]),
+                role,
+                row["created_at"],
+            ),
+        )
+    conn.execute("DROP TABLE users")
+    conn.execute("ALTER TABLE users_new RENAME TO users")
 
 
 def init_db() -> None:
     with db() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              email TEXT NOT NULL UNIQUE,
-              password_hash TEXT NOT NULL,
-              first_name TEXT NOT NULL,
-              last_name TEXT NOT NULL,
-              company TEXT,
-              country TEXT NOT NULL,
-              vat TEXT,
-              license_key TEXT NOT NULL,
-              license_payload TEXT NOT NULL,
-              created_at TEXT NOT NULL
-            )
-            """
-        )
+        migrate_legacy(conn)
+        conn.execute(USERS_SCHEMA)
+        conn.execute(ADMIN_LOG_SCHEMA)
 
 
 def hash_password(password: str, salt: bytes | None = None) -> str:
@@ -126,6 +272,8 @@ def ensure_signing_keys() -> Ed25519PrivateKey:
             "================================\n"
             "easybundle_signing.key — private Ed25519 key (keep secret)\n"
             "easybundle_signing.pub — public key (embed in plugins to verify)\n"
+            "easybundle_data.key — AES-256-GCM key for PII at rest (keep secret)\n"
+            "easybundle_session.secret — Flask session signing secret\n"
             "outbox/ — email deliveries when SMTP is not configured\n",
             encoding="utf-8",
         )
@@ -240,6 +388,79 @@ def parse_purchase(data: dict) -> tuple[dict | None, str | None]:
     }, None
 
 
+# ── helpers ──────────────────────────────────────────────────────────
+
+def row_to_user(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "email": decrypt_str(row["email_enc"]),
+        "first_name": decrypt_str(row["first_name_enc"]),
+        "last_name": decrypt_str(row["last_name_enc"]),
+        "company": decrypt_str(row["company_enc"]),
+        "country": decrypt_str(row["country_enc"]),
+        "vat": decrypt_str(row["vat_enc"]),
+        "license_key": decrypt_str(row["license_key_enc"]),
+        "role": row["role"],
+        "revoked": bool(row["revoked"]),
+        "created_at": row["created_at"],
+    }
+
+
+def current_email() -> str | None:
+    email = session.get("user_email")
+    return (email or "").strip().lower() or None
+
+
+def is_admin() -> bool:
+    email = current_email()
+    if not email:
+        return False
+    with db() as conn:
+        row = conn.execute(
+            "SELECT role FROM users WHERE email_hash = ?", (email_hash(email),)
+        ).fetchone()
+    return bool(row and row["role"] == "admin")
+
+
+def admin_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not is_admin():
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+
+def log_admin(action: str, target_id: int | None, detail: dict | None = None) -> None:
+    actor = current_email() or ""
+    detail_enc = encrypt_str(json.dumps(detail, ensure_ascii=False)) if detail else None
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO admin_log (actor_hash, action, target_id, detail_enc, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                email_hash(actor),
+                action,
+                target_id,
+                detail_enc,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+
+
+def ensure_god_admin() -> None:
+    """Idempotent: promote the god account to admin."""
+    with db() as conn:
+        row = conn.execute(
+            "SELECT id FROM users WHERE email_hash = ?", (email_hash(GOD_EMAIL),)
+        ).fetchone()
+        if row:
+            conn.execute(
+                "UPDATE users SET role = 'admin' WHERE id = ?", (row["id"],)
+            )
+
+
 # ── routes ───────────────────────────────────────────────────────────
 
 @app.get("/")
@@ -250,6 +471,19 @@ def index():
 @app.get("/account.html")
 def account_page():
     return send_from_directory(ROOT, "account.html")
+
+
+@app.get("/admin.html")
+def admin_page():
+    if not is_admin():
+        return (
+            "<!DOCTYPE html><html><head><meta charset='utf-8'><title>403</title></head>"
+            "<body style='background:#000;color:#f5f5f5;font-family:monospace;padding:40px'>"
+            "<h1>403 — Forbidden</h1><p>Sign in as the admin account to view this page.</p>"
+            "</body></html>",
+            403,
+        )
+    return send_from_directory(ROOT, "admin.html")
 
 
 @app.get("/api/health")
@@ -270,7 +504,7 @@ def purchase():
 
     with db() as conn:
         existing = conn.execute(
-            "SELECT id FROM users WHERE email = ?", (parsed["email"],)
+            "SELECT id FROM users WHERE email_hash = ?", (email_hash(parsed["email"]),)
         ).fetchone()
         if existing:
             return jsonify({"ok": False, "error": "An account with this email already exists. Log in instead."}), 409
@@ -285,20 +519,24 @@ def purchase():
         conn.execute(
             """
             INSERT INTO users (
-              email, password_hash, first_name, last_name, company, country, vat,
-              license_key, license_payload, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              email_hash, email_enc, password_hash,
+              first_name_enc, last_name_enc, company_enc, country_enc, vat_enc,
+              license_key_hash, license_key_enc, license_payload_enc,
+              role, revoked, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', 0, ?)
             """,
             (
-                parsed["email"],
+                email_hash(parsed["email"]),
+                encrypt_str(parsed["email"]),
                 password_hash,
-                parsed["first_name"],
-                parsed["last_name"],
-                parsed["company"],
-                parsed["country"],
-                parsed["vat"],
-                license_key,
-                license_payload,
+                encrypt_str(parsed["first_name"]),
+                encrypt_str(parsed["last_name"]),
+                encrypt_str(parsed["company"]),
+                encrypt_str(parsed["country"]),
+                encrypt_str(parsed["vat"]),
+                license_key_hash(license_key),
+                encrypt_str(license_key),
+                encrypt_str(license_payload),
                 created_at,
             ),
         )
@@ -349,22 +587,27 @@ def activate():
 
     with db() as conn:
         row = conn.execute(
-            "SELECT license_key, license_payload, email FROM users WHERE license_key = ?",
-            (key,),
+            "SELECT license_key_enc, license_payload_enc, email_enc, revoked FROM users "
+            "WHERE license_key_hash = ?",
+            (license_key_hash(key),),
         ).fetchone()
 
     if row is None:
         return jsonify({"ok": False, "error": "Unknown license key"}), 404
 
-    if (row["email"] or "").lower() != email:
+    stored_email = (decrypt_str(row["email_enc"]) or "").lower()
+    if stored_email != email:
         return jsonify({"ok": False, "error": "Email does not match this license"}), 403
+
+    if row["revoked"]:
+        return jsonify({"ok": False, "error": "This license has been revoked"}), 403
 
     return jsonify(
         {
             "ok": True,
-            "license_key": row["license_key"],
-            "license_payload": row["license_payload"],
-            "email": row["email"],
+            "license_key": decrypt_str(row["license_key_enc"]),
+            "license_payload": decrypt_str(row["license_payload_enc"]),
+            "email": stored_email,
             "plugins": PLUGINS,
             "product": PRODUCT,
         }
@@ -384,19 +627,23 @@ def verify():
 
     with db() as conn:
         row = conn.execute(
-            "SELECT license_key, email FROM users WHERE license_key = ? AND lower(email) = ?",
-            (key, email),
+            "SELECT license_key_enc, email_enc, revoked FROM users "
+            "WHERE license_key_hash = ? AND email_hash = ?",
+            (license_key_hash(key), email_hash(email)),
         ).fetchone()
 
     if row is None:
         return jsonify({"ok": False, "valid": False, "error": "License not found"}), 404
 
+    if row["revoked"]:
+        return jsonify({"ok": False, "valid": False, "error": "License revoked"}), 403
+
     return jsonify(
         {
             "ok": True,
             "valid": True,
-            "license_key": row["license_key"],
-            "email": row["email"],
+            "license_key": decrypt_str(row["license_key_enc"]),
+            "email": decrypt_str(row["email_enc"]),
             "plugins": PLUGINS,
             "product": PRODUCT,
         }
@@ -412,7 +659,9 @@ def login():
         return jsonify({"ok": False, "error": "Email and password required"}), 400
 
     with db() as conn:
-        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM users WHERE email_hash = ?", (email_hash(email),)
+        ).fetchone()
     if not row or not verify_password(password, row["password_hash"]):
         return jsonify({"ok": False, "error": "Invalid email or password"}), 401
 
@@ -421,12 +670,14 @@ def login():
         {
             "ok": True,
             "user": {
-                "email": row["email"],
-                "first_name": row["first_name"],
-                "last_name": row["last_name"],
-                "company": row["company"],
-                "country": row["country"],
-                "license_key": row["license_key"],
+                "email": decrypt_str(row["email_enc"]),
+                "first_name": decrypt_str(row["first_name_enc"]),
+                "last_name": decrypt_str(row["last_name_enc"]),
+                "company": decrypt_str(row["company_enc"]),
+                "country": decrypt_str(row["country_enc"]),
+                "license_key": decrypt_str(row["license_key_enc"]),
+                "role": row["role"],
+                "revoked": bool(row["revoked"]),
                 "plugins": PLUGINS,
                 "created_at": row["created_at"],
             },
@@ -442,11 +693,13 @@ def logout():
 
 @app.get("/api/me")
 def me():
-    email = session.get("user_email")
+    email = current_email()
     if not email:
         return jsonify({"ok": False, "error": "Not logged in"}), 401
     with db() as conn:
-        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM users WHERE email_hash = ?", (email_hash(email),)
+        ).fetchone()
     if not row:
         session.clear()
         return jsonify({"ok": False, "error": "Not logged in"}), 401
@@ -454,17 +707,210 @@ def me():
         {
             "ok": True,
             "user": {
-                "email": row["email"],
-                "first_name": row["first_name"],
-                "last_name": row["last_name"],
-                "company": row["company"],
-                "country": row["country"],
-                "license_key": row["license_key"],
+                "email": decrypt_str(row["email_enc"]),
+                "first_name": decrypt_str(row["first_name_enc"]),
+                "last_name": decrypt_str(row["last_name_enc"]),
+                "company": decrypt_str(row["company_enc"]),
+                "country": decrypt_str(row["country_enc"]),
+                "license_key": decrypt_str(row["license_key_enc"]),
+                "role": row["role"],
+                "revoked": bool(row["revoked"]),
                 "plugins": PLUGINS,
                 "created_at": row["created_at"],
             },
         }
     )
+
+
+# ── admin API (god mode) ─────────────────────────────────────────────
+
+@app.get("/api/admin/users")
+@admin_required
+def admin_users_list():
+    with db() as conn:
+        rows = conn.execute("SELECT * FROM users ORDER BY id").fetchall()
+    return jsonify({"ok": True, "users": [row_to_user(r) for r in rows]})
+
+
+@app.post("/api/admin/users")
+@admin_required
+def admin_users_create():
+    data = request.get_json(silent=True) or {}
+    first = (data.get("first_name") or "").strip()
+    last = (data.get("last_name") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+    company = (data.get("company") or "").strip() or None
+    country = (data.get("country") or "").strip().upper()
+    vat = (data.get("vat") or "").strip() or None
+    password = (data.get("password") or "").strip() or None
+    send_mail = bool(data.get("send_email"))
+
+    if not first or not last:
+        return jsonify({"ok": False, "error": "Name is required"}), 400
+    if not EMAIL_RE.match(email):
+        return jsonify({"ok": False, "error": "Valid email is required"}), 400
+    if not country:
+        return jsonify({"ok": False, "error": "Country is required"}), 400
+
+    with db() as conn:
+        existing = conn.execute(
+            "SELECT id FROM users WHERE email_hash = ?", (email_hash(email),)
+        ).fetchone()
+        if existing:
+            return jsonify({"ok": False, "error": "An account with this email already exists"}), 409
+
+    private = ensure_signing_keys()
+    license_key, license_payload = generate_license(email, private)
+    if not password:
+        password = generate_password()
+    password_hash = hash_password(password)
+    created_at = datetime.now(timezone.utc).isoformat()
+
+    with db() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO users (
+              email_hash, email_enc, password_hash,
+              first_name_enc, last_name_enc, company_enc, country_enc, vat_enc,
+              license_key_hash, license_key_enc, license_payload_enc,
+              role, revoked, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', 0, ?)
+            """,
+            (
+                email_hash(email),
+                encrypt_str(email),
+                password_hash,
+                encrypt_str(first),
+                encrypt_str(last),
+                encrypt_str(company),
+                encrypt_str(country),
+                encrypt_str(vat),
+                license_key_hash(license_key),
+                encrypt_str(license_key),
+                encrypt_str(license_payload),
+                created_at,
+            ),
+        )
+        new_id = cur.lastrowid
+    log_admin("create_user", new_id, {"email": email, "license_key": license_key})
+
+    delivery = None
+    if send_mail:
+        delivery = send_email(build_email(email, first, password, license_key))
+
+    return jsonify(
+        {
+            "ok": True,
+            "user": {
+                "id": new_id,
+                "email": email,
+                "first_name": first,
+                "last_name": last,
+                "license_key": license_key,
+                "role": "user",
+                "revoked": False,
+            },
+            "temp_password": password,
+            "email_delivery": delivery,
+        }
+    ), 201
+
+
+@app.post("/api/admin/users/<int:uid>/revoke")
+@admin_required
+def admin_users_revoke(uid: int):
+    body = request.get_json(silent=True) or {}
+    revoke = bool(body.get("revoke", True))
+
+    with db() as conn:
+        row = conn.execute(
+            "SELECT email_enc, role FROM users WHERE id = ?", (uid,)
+        ).fetchone()
+        if row is None:
+            return jsonify({"ok": False, "error": "User not found"}), 404
+        if revoke and row["role"] == "admin":
+            return jsonify({"ok": False, "error": "Cannot revoke an admin license"}), 403
+        conn.execute("UPDATE users SET revoked = ? WHERE id = ?", (1 if revoke else 0, uid))
+
+    log_admin("revoke" if revoke else "restore", uid, {"email": decrypt_str(row["email_enc"])})
+    return jsonify({"ok": True, "revoked": revoke})
+
+
+@app.post("/api/admin/users/<int:uid>/reset-password")
+@admin_required
+def admin_users_reset_password(uid: int):
+    password = generate_password()
+
+    with db() as conn:
+        row = conn.execute(
+            "SELECT email_enc, first_name_enc, license_key_enc FROM users WHERE id = ?",
+            (uid,),
+        ).fetchone()
+        if row is None:
+            return jsonify({"ok": False, "error": "User not found"}), 404
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (hash_password(password), uid),
+        )
+    email = decrypt_str(row["email_enc"])
+    first = decrypt_str(row["first_name_enc"])
+    license_key = decrypt_str(row["license_key_enc"])
+
+    log_admin("reset_password", uid, {"email": email})
+    delivery = send_email(build_email(email, first or "", password, license_key or ""))
+
+    return jsonify(
+        {
+            "ok": True,
+            "email": email,
+            "temp_password": password,
+            "email_delivery": delivery,
+        }
+    )
+
+
+@app.delete("/api/admin/users/<int:uid>")
+@admin_required
+def admin_users_delete(uid: int):
+    with db() as conn:
+        row = conn.execute(
+            "SELECT email_enc, role FROM users WHERE id = ?", (uid,)
+        ).fetchone()
+        if row is None:
+            return jsonify({"ok": False, "error": "User not found"}), 404
+        if row["role"] == "admin":
+            return jsonify({"ok": False, "error": "Cannot delete an admin account"}), 403
+        conn.execute("DELETE FROM users WHERE id = ?", (uid,))
+
+    log_admin("delete_user", uid, {"email": decrypt_str(row["email_enc"])})
+    return jsonify({"ok": True})
+
+
+@app.get("/api/admin/log")
+@admin_required
+def admin_log():
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT actor_hash, action, target_id, detail_enc, created_at "
+            "FROM admin_log ORDER BY id DESC LIMIT 200"
+        ).fetchall()
+    entries = []
+    for r in rows:
+        detail = None
+        try:
+            detail = json.loads(decrypt_str(r["detail_enc"]) or "null")
+        except Exception:
+            pass
+        entries.append(
+            {
+                "actor": r["actor_hash"][:12] + "…",
+                "action": r["action"],
+                "target_id": r["target_id"],
+                "detail": detail,
+                "created_at": r["created_at"],
+            }
+        )
+    return jsonify({"ok": True, "entries": entries})
 
 
 @app.get("/<path:path>")
@@ -475,9 +921,11 @@ def static_proxy(path: str):
 def main() -> None:
     init_db()
     ensure_signing_keys()
+    ensure_god_admin()
     port = int(os.environ.get("PORT", "8787"))
     print(f"EASYBUNDLE server → http://127.0.0.1:{port}")
     print(f"Signing keys     → {KEY_DIR}")
+    print(f"God mode admin   → {GOD_EMAIL}")
     app.run(host="127.0.0.1", port=port, debug=True)
 
 

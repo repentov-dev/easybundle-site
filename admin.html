@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Admin — EASYBUNDLE</title>
+  <link rel="icon" href="assets/logo.png" type="image/png" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=IBM+Plex+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .admin-page { min-height: 100svh; padding: 110px 20px 80px; }
+    .admin-card {
+      width: min(1040px, 100%);
+      margin: 0 auto 24px;
+      background: var(--about-card);
+      border: 1px solid var(--about-stroke);
+      border-radius: var(--chrome-corner);
+      padding: 24px;
+    }
+    .admin-card h1 { font-family: var(--display); font-size: 1.6rem; margin: 0 0 4px; }
+    .admin-card h2 { font-family: var(--display); font-size: 1.1rem; margin: 0 0 12px; }
+    .admin-card .lede { color: var(--text-muted); font-family: var(--mono); font-size: 12px; margin: 0 0 16px; }
+    .admin-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+    .admin-table th {
+      text-align: left; color: var(--text-muted); font-weight: 700; letter-spacing: 0.05em;
+      text-transform: uppercase; font-size: 10px; padding: 8px 10px; border-bottom: 1px solid var(--about-stroke);
+    }
+    .admin-table td { padding: 10px; border-bottom: 1px solid var(--about-stroke); vertical-align: top; word-break: break-all; }
+    .admin-table tr.is-revoked td { opacity: 0.45; }
+    .admin-table .role-admin { color: var(--buy); font-weight: 700; }
+    .badge {
+      display: inline-block; font-family: var(--mono); font-size: 10px; font-weight: 700;
+      letter-spacing: 0.06em; padding: 2px 8px; border-radius: 999px; text-transform: uppercase;
+    }
+    .badge-active { background: #123b27; color: #3ddc84; }
+    .badge-revoked { background: #3b1a1a; color: #ff6b6b; }
+    .badge-admin { background: #3b1a2b; color: var(--buy); }
+    .admin-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .btn-mini {
+      font-family: var(--mono); font-size: 11px; font-weight: 700; cursor: pointer;
+      padding: 4px 10px; border-radius: 999px; border: 1px solid var(--about-stroke);
+      background: #1b1b1b; color: var(--text-primary); transition: border-color 0.15s ease, color 0.15s ease;
+    }
+    .btn-mini:hover { border-color: var(--text-secondary); }
+    .btn-mini.is-danger { color: #ff6b6b; }
+    .btn-mini.is-danger:hover { border-color: #ff6b6b; }
+    .btn-mini:disabled { opacity: 0.4; cursor: not-allowed; }
+    .admin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    @media (max-width: 720px) { .admin-grid { grid-template-columns: 1fr; } }
+    .log-list { font-family: var(--mono); font-size: 12px; list-style: none; margin: 0; padding: 0; max-height: 320px; overflow: auto; }
+    .log-list li { padding: 6px 0; border-bottom: 1px solid var(--about-stroke); color: var(--text-secondary); }
+    .log-list .t { color: var(--text-muted); }
+    .create-password { margin-top: 4px; font-family: var(--mono); font-size: 12px; color: var(--text-muted); }
+    .flash { font-family: var(--mono); font-size: 13px; margin-top: 12px; }
+    .flash.is-ok { color: #3ddc84; }
+    .flash.is-error { color: #ff6b6b; }
+  </style>
+</head>
+<body>
+  <nav class="rail" aria-label="Admin">
+    <div class="rail__inner">
+      <a href="/">EASYBUNDLE</a>
+      <span class="rail__divider"></span>
+      <a href="/account.html">Account</a>
+      <span class="rail__divider"></span>
+      <a href="#" id="navLogout">Log out</a>
+    </div>
+  </nav>
+
+  <main class="admin-page" id="admin">
+    <div class="admin-card">
+      <h1>God mode</h1>
+      <p class="lede" id="adminWho"></p>
+      <div class="admin-grid">
+        <section>
+          <h2>Create license</h2>
+          <form class="checkout__form" id="createForm">
+            <div class="checkout__field">
+              <label for="cEmail">Email</label>
+              <input id="cEmail" name="email" type="email" autocomplete="off" required />
+            </div>
+            <div class="checkout__field">
+              <label for="cFirst">First name</label>
+              <input id="cFirst" name="first_name" type="text" autocomplete="off" required />
+            </div>
+            <div class="checkout__field">
+              <label for="cLast">Last name</label>
+              <input id="cLast" name="last_name" type="text" autocomplete="off" required />
+            </div>
+            <div class="checkout__field">
+              <label for="cCountry">Country</label>
+              <input id="cCountry" name="country" type="text" autocomplete="off" placeholder="RU" required />
+            </div>
+            <div class="checkout__field">
+              <label for="cPassword">Password <span style="color:var(--text-muted)">(blank = auto-generate)</span></label>
+              <input id="cPassword" name="password" type="text" autocomplete="off" />
+            </div>
+            <label class="checkout__check">
+              <input type="checkbox" id="cSend" checked /> Email the password &amp; key
+            </label>
+            <button class="checkout__submit" type="submit">Create user + license</button>
+            <p class="flash" id="createFlash" aria-live="polite"></p>
+          </form>
+        </section>
+        <section>
+          <h2>Audit log</h2>
+          <ul class="log-list" id="adminLog"><li style="color:var(--text-muted)">Loading…</li></ul>
+        </section>
+      </div>
+    </div>
+
+    <div class="admin-card">
+      <h2>Users &amp; licenses</h2>
+      <div style="overflow-x:auto">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>ID</th><th>Email</th><th>Name</th><th>Country</th><th>License key</th>
+              <th>Role</th><th>Status</th><th>Created</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="usersBody"><tr><td colspan="9" style="color:var(--text-muted)">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const tbody = document.getElementById("usersBody");
+    const createForm = document.getElementById("createForm");
+    const createFlash = document.getElementById("createFlash");
+    const adminLog = document.getElementById("adminLog");
+
+    function esc(s) {
+      return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[c]));
+    }
+
+    function flash(el, msg, ok) {
+      el.textContent = msg;
+      el.className = "flash " + (ok ? "is-ok" : "is-error");
+    }
+
+    async function api(path, opts = {}) {
+      const res = await fetch(path, {
+        credentials: "same-origin",
+        headers: opts.body ? { "Content-Type": "application/json" } : undefined,
+        ...opts,
+      });
+      const data = await res.json().catch(() => ({}));
+      return { res, data };
+    }
+
+    function statusBadge(u) {
+      const badges = [];
+      if (u.role === "admin") badges.push('<span class="badge badge-admin">admin</span>');
+      badges.push(u.revoked
+        ? '<span class="badge badge-revoked">revoked</span>'
+        : '<span class="badge badge-active">active</span>');
+      return badges.join(" ");
+    }
+
+    function actionsCell(u) {
+      if (u.role === "admin") return '<span style="color:var(--text-muted)">—</span>';
+      const revoke = u.revoked
+        ? `<button class="btn-mini" data-action="restore" data-id="${u.id}">Restore</button>`
+        : `<button class="btn-mini" data-action="revoke" data-id="${u.id}">Revoke</button>`;
+      return `<div class="admin-actions">
+        ${revoke}
+        <button class="btn-mini" data-action="reset" data-id="${u.id}">Reset pw</button>
+        <button class="btn-mini is-danger" data-action="delete" data-id="${u.id}">Delete</button>
+      </div>`;
+    }
+
+    async function loadUsers() {
+      const { data } = await api("/api/admin/users");
+      if (!data.ok) return;
+      tbody.innerHTML = data.users.map((u) => {
+        const rowCls = u.revoked ? "is-revoked" : "";
+        const name = `${esc(u.first_name)} ${esc(u.last_name)}`.trim();
+        return `<tr class="${rowCls}">
+          <td>${u.id}</td>
+          <td>${esc(u.email)}</td>
+          <td>${name || "—"}</td>
+          <td>${esc(u.country) || "—"}</td>
+          <td>${esc(u.license_key) || "—"}</td>
+          <td class="${u.role === "admin" ? "role-admin" : ""}">${u.role}</td>
+          <td>${statusBadge(u)}</td>
+          <td>${u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}</td>
+          <td>${actionsCell(u)}</td>
+        </tr>`;
+      }).join("");
+    }
+
+    async function loadLog() {
+      const { data } = await api("/api/admin/log");
+      if (!data.ok) return;
+      adminLog.innerHTML = data.entries.length
+        ? data.entries.map((e) => {
+            const who = e.detail && e.detail.email ? e.detail.email : `#${e.target_id ?? "?"}`;
+            const act = e.action.replace(/_/g, " ");
+            return `<li><span class="t">${new Date(e.created_at).toLocaleString()}</span> — ${act} ${esc(who)}</li>`;
+          }).join("")
+        : '<li style="color:var(--text-muted)">No activity yet.</li>';
+    }
+
+    tbody.addEventListener("click", async (e) => {
+      const btn = e.target.closest("button[data-action]");
+      if (!btn) return;
+      btn.disabled = true;
+      const id = btn.dataset.id;
+      const action = btn.dataset.action;
+      let r;
+      try {
+        if (action === "revoke" || action === "restore") {
+          r = await api(`/api/admin/users/${id}/revoke`, {
+            method: "POST",
+            body: JSON.stringify({ revoke: action === "revoke" }),
+          });
+        } else if (action === "reset") {
+          r = await api(`/api/admin/users/${id}/reset-password`, { method: "POST" });
+          const p = r.data.temp_password;
+          prompt("Temporary password:", p || "");
+        } else if (action === "delete") {
+          if (!confirm("Delete this user and their license? This cannot be undone.")) { btn.disabled = false; return; }
+          r = await api(`/api/admin/users/${id}`, { method: "DELETE" });
+        }
+        if (r.data.ok) { await loadUsers(); await loadLog(); }
+      } catch (err) {
+        alert("Request failed");
+      }
+    });
+
+    createForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = {
+        email: document.getElementById("cEmail").value.trim(),
+        first_name: document.getElementById("cFirst").value.trim(),
+        last_name: document.getElementById("cLast").value.trim(),
+        country: document.getElementById("cCountry").value.trim(),
+        password: document.getElementById("cPassword").value.trim(),
+        send_email: document.getElementById("cSend").checked,
+      };
+      const btn = createForm.querySelector("button[type=submit]");
+      btn.disabled = true;
+      const { res, data } = await api("/api/admin/users", { method: "POST", body: JSON.stringify(body) });
+      btn.disabled = false;
+      if (!res.ok || !data.ok) {
+        flash(createFlash, data.error || "Create failed", false);
+        return;
+      }
+      flash(createFlash, `Created ${data.user.email} — key ${data.user.license_key}${data.temp_password ? `, temp pw ${data.temp_password}` : ""}`, true);
+      createForm.reset();
+      document.getElementById("cSend").checked = true;
+      await loadUsers();
+      await loadLog();
+    });
+
+    document.getElementById("navLogout").addEventListener("click", async () => {
+      await fetch("/api/logout", { method: "POST", credentials: "same-origin" });
+      window.location.href = "/account.html";
+    });
+
+    (async () => {
+      const { res, data } = await api("/api/me");
+      if (!res.ok || !data.ok || data.user.role !== "admin") {
+        window.location.href = "/account.html";
+        return;
+      }
+      document.getElementById("adminWho").textContent =
+        `Signed in as ${data.user.email} — role ${data.user.role}`;
+      await Promise.all([loadUsers(), loadLog()]);
+    })();
+  </script>
+</body>
+</html>
