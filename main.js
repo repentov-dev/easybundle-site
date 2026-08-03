@@ -52,6 +52,19 @@
   const footer = document.querySelector(".footer");
   if (footer) io.observe(footer);
 
+  /* ── Mobile dropdown nav toggle ── */
+  const burger = document.querySelector(".rail__burger");
+  function setNavOpen(open) {
+    rail.classList.toggle("is-open", open);
+    if (burger) burger.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  if (burger) {
+    burger.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setNavOpen(!rail.classList.contains("is-open"));
+    });
+  }
+
   /* ── Floating nav hide/show on scroll ── */
   let lastScroll = 0;
   let ticking = false;
@@ -75,6 +88,17 @@
   }
 
   window.addEventListener("scroll", onScroll, { passive: true });
+
+  // Close the dropdown when a link inside it is tapped
+  railLinks.forEach((link) => {
+    link.addEventListener("click", () => setNavOpen(false), { capture: true });
+  });
+  // Close when tapping anywhere outside the rail
+  document.addEventListener("pointerdown", (e) => {
+    if (rail.classList.contains("is-open") && !rail.contains(e.target)) {
+      setNavOpen(false);
+    }
+  });
 
 
 
