@@ -26,6 +26,7 @@ Admin (god mode):
 from __future__ import annotations
 
 import base64
+import calendar
 import hashlib
 import hmac
 import json
@@ -35,7 +36,7 @@ import secrets
 import smtplib
 import sqlite3
 import string
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from functools import wraps
 from pathlib import Path
@@ -150,6 +151,7 @@ CREATE TABLE IF NOT EXISTS users (
   license_payload_enc TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'user',
   revoked INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT,
   created_at TEXT NOT NULL
 )
 """
@@ -222,6 +224,9 @@ def init_db() -> None:
         migrate_legacy(conn)
         conn.execute(USERS_SCHEMA)
         conn.execute(ADMIN_LOG_SCHEMA)
+        # Add expires_at to tables created before expiry support.
+        if "expires_at" not in table_columns(conn, "users"):
+            conn.execute("ALTER TABLE users ADD COLUMN expires_at TEXT")
 
 
 def hash_password(password: str, salt: bytes | None = None) -> str:
@@ -287,8 +292,16 @@ def generate_password(length: int = 14) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
-def generate_license(email: str, private: Ed25519PrivateKey) -> tuple[str, str]:
-    """Return (human license key, signed payload b64)."""
+def generate_license(
+    email: str,
+    private: Ed25519PrivateKey,
+    expires_at: datetime | None = None,
+) -> tuple[str, str]:
+    """Return (human license key, signed payload b64).
+
+    expires_at embeds an epoch-ms `expires` claim the plugins verify offline.
+    None → lifetime license (no expiry claim).
+    """
     body = secrets.token_hex(8).upper()
     groups = [body[i : i + 4] for i in range(0, 16, 4)]
     human = "EB-" + "-".join(groups)
@@ -300,10 +313,49 @@ def generate_license(email: str, private: Ed25519PrivateKey) -> tuple[str, str]:
         "key": human,
         "issued": datetime.now(timezone.utc).isoformat(),
     }
+    if expires_at is not None:
+        payload["expires"] = int(expires_at.timestamp() * 1000)
+
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     sig = private.sign(raw)
     sealed = base64.urlsafe_b64encode(raw + b"." + sig).decode("ascii")
     return human, sealed
+
+
+def months_from_now(months: int) -> datetime:
+    """Add N calendar months to now (UTC), clamped to the target month's length."""
+    now = datetime.now(timezone.utc)
+    total = now.year * 12 + (now.month - 1) + max(0, int(months))
+    year, month0 = divmod(total, 12)
+    month = month0 + 1
+    day = min(now.day, calendar.monthrange(year, month)[1])
+    return now.replace(year=year, month=month, day=day)
+
+
+def iso_to_epoch_ms(iso: str | None) -> int | None:
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp() * 1000)
+    except Exception:
+        return None
+
+
+def license_ok(expires_at: str | None, revoked: int) -> tuple[bool, str | None]:
+    """Return (valid, expiry_error). Lifetime licenses never expire."""
+    if revoked:
+        return False, "This license has been revoked"
+    if not expires_at:
+        return True, None
+    ms = iso_to_epoch_ms(expires_at)
+    if ms is None:
+        return True, None
+    if ms <= datetime.now(timezone.utc).timestamp() * 1000:
+        return False, "License expired"
+    return True, None
 
 
 # ── email ────────────────────────────────────────────────────────────
@@ -391,6 +443,8 @@ def parse_purchase(data: dict) -> tuple[dict | None, str | None]:
 # ── helpers ──────────────────────────────────────────────────────────
 
 def row_to_user(row: sqlite3.Row) -> dict:
+    expires_at = row["expires_at"]
+    expires_ms = iso_to_epoch_ms(expires_at)
     return {
         "id": row["id"],
         "email": decrypt_str(row["email_enc"]),
@@ -402,6 +456,9 @@ def row_to_user(row: sqlite3.Row) -> dict:
         "license_key": decrypt_str(row["license_key_enc"]),
         "role": row["role"],
         "revoked": bool(row["revoked"]),
+        "expires_at": expires_at,
+        "expires_ms": expires_ms,
+        "lifetime": expires_ms is None,
         "created_at": row["created_at"],
     }
 
@@ -511,7 +568,9 @@ def purchase():
 
     private = ensure_signing_keys()
     password = generate_password()
-    license_key, license_payload = generate_license(parsed["email"], private)
+    months = data.get("license_months")
+    expires_at = months_from_now(int(months)) if months else None
+    license_key, license_payload = generate_license(parsed["email"], private, expires_at)
     password_hash = hash_password(password)
     created_at = datetime.now(timezone.utc).isoformat()
 
@@ -522,8 +581,8 @@ def purchase():
               email_hash, email_enc, password_hash,
               first_name_enc, last_name_enc, company_enc, country_enc, vat_enc,
               license_key_hash, license_key_enc, license_payload_enc,
-              role, revoked, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', 0, ?)
+              role, revoked, expires_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', 0, ?, ?)
             """,
             (
                 email_hash(parsed["email"]),
@@ -537,6 +596,7 @@ def purchase():
                 license_key_hash(license_key),
                 encrypt_str(license_key),
                 encrypt_str(license_payload),
+                expires_at.isoformat() if expires_at else None,
                 created_at,
             ),
         )
@@ -558,6 +618,8 @@ def purchase():
             # Password is emailed; also returned once so the UI can confirm in-dev.
             "password_emailed": True,
             "temp_password": password,
+            "expires_at": expires_at.isoformat() if expires_at else None,
+            "lifetime": expires_at is None,
         }
     )
 
@@ -587,8 +649,8 @@ def activate():
 
     with db() as conn:
         row = conn.execute(
-            "SELECT license_key_enc, license_payload_enc, email_enc, revoked FROM users "
-            "WHERE license_key_hash = ?",
+            "SELECT license_key_enc, license_payload_enc, email_enc, revoked, expires_at "
+            "FROM users WHERE license_key_hash = ?",
             (license_key_hash(key),),
         ).fetchone()
 
@@ -599,8 +661,9 @@ def activate():
     if stored_email != email:
         return jsonify({"ok": False, "error": "Email does not match this license"}), 403
 
-    if row["revoked"]:
-        return jsonify({"ok": False, "error": "This license has been revoked"}), 403
+    valid, err = license_ok(row["expires_at"], row["revoked"])
+    if not valid:
+        return jsonify({"ok": False, "error": err}), 403
 
     return jsonify(
         {
@@ -610,6 +673,9 @@ def activate():
             "email": stored_email,
             "plugins": PLUGINS,
             "product": PRODUCT,
+            "expires_at": row["expires_at"],
+            "expires_ms": iso_to_epoch_ms(row["expires_at"]),
+            "lifetime": row["expires_at"] is None,
         }
     )
 
@@ -627,7 +693,7 @@ def verify():
 
     with db() as conn:
         row = conn.execute(
-            "SELECT license_key_enc, email_enc, revoked FROM users "
+            "SELECT license_key_enc, email_enc, revoked, expires_at FROM users "
             "WHERE license_key_hash = ? AND email_hash = ?",
             (license_key_hash(key), email_hash(email)),
         ).fetchone()
@@ -635,8 +701,9 @@ def verify():
     if row is None:
         return jsonify({"ok": False, "valid": False, "error": "License not found"}), 404
 
-    if row["revoked"]:
-        return jsonify({"ok": False, "valid": False, "error": "License revoked"}), 403
+    valid, err = license_ok(row["expires_at"], row["revoked"])
+    if not valid:
+        return jsonify({"ok": False, "valid": False, "error": err}), 403
 
     return jsonify(
         {
@@ -646,6 +713,9 @@ def verify():
             "email": decrypt_str(row["email_enc"]),
             "plugins": PLUGINS,
             "product": PRODUCT,
+            "expires_at": row["expires_at"],
+            "expires_ms": iso_to_epoch_ms(row["expires_at"]),
+            "lifetime": row["expires_at"] is None,
         }
     )
 
@@ -678,6 +748,9 @@ def login():
                 "license_key": decrypt_str(row["license_key_enc"]),
                 "role": row["role"],
                 "revoked": bool(row["revoked"]),
+                "expires_at": row["expires_at"],
+                "expires_ms": iso_to_epoch_ms(row["expires_at"]),
+                "lifetime": row["expires_at"] is None,
                 "plugins": PLUGINS,
                 "created_at": row["created_at"],
             },
@@ -715,6 +788,9 @@ def me():
                 "license_key": decrypt_str(row["license_key_enc"]),
                 "role": row["role"],
                 "revoked": bool(row["revoked"]),
+                "expires_at": row["expires_at"],
+                "expires_ms": iso_to_epoch_ms(row["expires_at"]),
+                "lifetime": row["expires_at"] is None,
                 "plugins": PLUGINS,
                 "created_at": row["created_at"],
             },
@@ -744,6 +820,7 @@ def admin_users_create():
     vat = (data.get("vat") or "").strip() or None
     password = (data.get("password") or "").strip() or None
     send_mail = bool(data.get("send_email"))
+    months_raw = data.get("months")
 
     if not first or not last:
         return jsonify({"ok": False, "error": "Name is required"}), 400
@@ -751,6 +828,15 @@ def admin_users_create():
         return jsonify({"ok": False, "error": "Valid email is required"}), 400
     if not country:
         return jsonify({"ok": False, "error": "Country is required"}), 400
+
+    try:
+        months = int(months_raw) if months_raw not in (None, "", "0") else 0
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Months must be a number"}), 400
+    if months < 0 or months > 120:
+        return jsonify({"ok": False, "error": "Months must be between 0 and 120"}), 400
+
+    expires_at = months_from_now(months) if months > 0 else None
 
     with db() as conn:
         existing = conn.execute(
@@ -760,7 +846,7 @@ def admin_users_create():
             return jsonify({"ok": False, "error": "An account with this email already exists"}), 409
 
     private = ensure_signing_keys()
-    license_key, license_payload = generate_license(email, private)
+    license_key, license_payload = generate_license(email, private, expires_at)
     if not password:
         password = generate_password()
     password_hash = hash_password(password)
@@ -773,8 +859,8 @@ def admin_users_create():
               email_hash, email_enc, password_hash,
               first_name_enc, last_name_enc, company_enc, country_enc, vat_enc,
               license_key_hash, license_key_enc, license_payload_enc,
-              role, revoked, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', 0, ?)
+              role, revoked, expires_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', 0, ?, ?)
             """,
             (
                 email_hash(email),
@@ -788,6 +874,7 @@ def admin_users_create():
                 license_key_hash(license_key),
                 encrypt_str(license_key),
                 encrypt_str(license_payload),
+                expires_at.isoformat() if expires_at else None,
                 created_at,
             ),
         )
@@ -809,6 +896,8 @@ def admin_users_create():
                 "license_key": license_key,
                 "role": "user",
                 "revoked": False,
+                "expires_at": expires_at.isoformat() if expires_at else None,
+                "lifetime": expires_at is None,
             },
             "temp_password": password,
             "email_delivery": delivery,

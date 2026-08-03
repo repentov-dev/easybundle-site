@@ -53,6 +53,10 @@
           <dd id="dashPlugins"></dd>
         </div>
         <div>
+          <dt>License valid until</dt>
+          <dd id="dashExpiry"></dd>
+        </div>
+        <div>
           <dt>Purchased</dt>
           <dd id="dashDate"></dd>
         </div>
@@ -78,6 +82,14 @@
       document.getElementById("dashDate").textContent = user.created_at
         ? new Date(user.created_at).toLocaleString()
         : "—";
+      const expEl = document.getElementById("dashExpiry");
+      if (expEl) {
+        expEl.textContent = user.lifetime
+          ? "Lifetime"
+          : user.expires_at
+            ? new Date(user.expires_at).toLocaleDateString()
+            : "—";
+      }
       const adminLink = document.getElementById("adminLink");
       if (adminLink) adminLink.hidden = user.role !== "admin";
     }

@@ -96,6 +96,10 @@
               <label for="cPassword">Password <span style="color:var(--text-muted)">(blank = auto-generate)</span></label>
               <input id="cPassword" name="password" type="text" autocomplete="off" />
             </div>
+            <div class="checkout__field">
+              <label for="cMonths">License duration <span style="color:var(--text-muted)">(months; 0 = lifetime)</span></label>
+              <input id="cMonths" name="months" type="number" min="0" max="120" value="3" />
+            </div>
             <label class="checkout__check">
               <input type="checkbox" id="cSend" checked /> Email the password &amp; key
             </label>
@@ -117,7 +121,7 @@
           <thead>
             <tr>
               <th>ID</th><th>Email</th><th>Name</th><th>Country</th><th>License key</th>
-              <th>Role</th><th>Status</th><th>Created</th><th>Actions</th>
+              <th>Time left</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th>
             </tr>
           </thead>
           <tbody id="usersBody"><tr><td colspan="9" style="color:var(--text-muted)">Loading…</td></tr></tbody>
@@ -162,6 +166,20 @@
       return badges.join(" ");
     }
 
+    function timeLeft(u) {
+      if (u.lifetime) return '<span style="color:var(--text-muted)">lifetime</span>';
+      if (u.expires_at && u.expires_ms) {
+        const now = Date.now();
+        const diff = u.expires_ms - now;
+        if (diff <= 0) return '<span style="color:#ff6b6b;font-weight:700">expired</span>';
+        const days = Math.ceil(diff / 86400000);
+        return days >= 90
+          ? `${Math.floor(days / 30)} mo ${days % 30} d`
+          : `${days} d`;
+      }
+      return "—";
+    }
+
     function actionsCell(u) {
       if (u.role === "admin") return '<span style="color:var(--text-muted)">—</span>';
       const revoke = u.revoked
@@ -186,6 +204,7 @@
           <td>${name || "—"}</td>
           <td>${esc(u.country) || "—"}</td>
           <td>${esc(u.license_key) || "—"}</td>
+          <td>${timeLeft(u)}</td>
           <td class="${u.role === "admin" ? "role-admin" : ""}">${u.role}</td>
           <td>${statusBadge(u)}</td>
           <td>${u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}</td>
@@ -241,6 +260,7 @@
         last_name: document.getElementById("cLast").value.trim(),
         country: document.getElementById("cCountry").value.trim(),
         password: document.getElementById("cPassword").value.trim(),
+        months: document.getElementById("cMonths").value.trim(),
         send_email: document.getElementById("cSend").checked,
       };
       const btn = createForm.querySelector("button[type=submit]");
