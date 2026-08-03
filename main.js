@@ -775,14 +775,8 @@ window.addEventListener("scroll", onScroll, { passive: true });
 
   function openMobileLang() {
     if (!langSwitchEl || !isMobileLang()) return;
-    const r = langSwitchEl.getBoundingClientRect();
-    const railR = rail.getBoundingClientRect();
-    // Absolute within the fixed navbar: grow down without shifting the header.
-    langSwitchEl.style.position = "absolute";
-    langSwitchEl.style.top = `${r.top - railR.top}px`;
-    langSwitchEl.style.left = `${r.left - railR.left}px`;
-    langSwitchEl.style.zIndex = "150";
-    langSwitchEl.style.margin = "0";
+    // The chip stays in normal flex flow: it reserves its own space, so the
+    // scroller never slides underneath it and the header doesn't shift.
     langSwitchEl.classList.add("is-open");
     const st = chipState.get(langSwitchEl);
     if (st) st.tapped = true;
@@ -790,10 +784,6 @@ window.addEventListener("scroll", onScroll, { passive: true });
 
   function closeMobileLang() {
     if (!langSwitchEl) return;
-    langSwitchEl.style.position = "";
-    langSwitchEl.style.top = "";
-    langSwitchEl.style.left = "";
-    langSwitchEl.style.zIndex = "";
     langSwitchEl.classList.remove("is-open");
     const st = chipState.get(langSwitchEl);
     if (st) st.tapped = false;

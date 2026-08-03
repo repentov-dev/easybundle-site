@@ -663,6 +663,26 @@ a { color: inherit; text-decoration: none; }
     transform: none;
     width: 100%;
     padding: 0;
+    height: 56px;
+    overflow: visible;
+    align-items: flex-start;
+  }
+  /* Dark plate under the header — dims content that slides beneath it */
+  .rail::before {
+    content: "";
+    position: absolute;
+    top: -12px;
+    left: 0;
+    right: 0;
+    bottom: -56px;
+    background: linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.9),
+      rgba(0, 0, 0, 0.5) 50%,
+      rgba(0, 0, 0, 0) 100%
+    );
+    z-index: -1;
+    pointer-events: none;
   }
   .rail.is-hidden {
     transform: translateY(-200%);
@@ -680,6 +700,7 @@ a { color: inherit; text-decoration: none; }
     justify-content: flex-start;
     gap: 8px;
     width: auto;
+    height: 100%;
     padding: 14px 0 14px 16px;
     background: transparent;
     border: none;
@@ -744,11 +765,11 @@ a { color: inherit; text-decoration: none; }
   /* Lang switch — always visible, sits outside the scroller */
   .rail__langs {
     flex: 0 0 auto;
-    margin: 0 16px 0 8px;
+    margin: 14px 16px 0 8px;
     height: var(--chip-h);
     width: 44px;
     padding: 0;
-    align-self: center;
+    align-self: flex-start;
   }
   .rail__langs .chip__canvas {
     height: 100%;
