@@ -38,6 +38,7 @@
   const sections = document.querySelectorAll(".plugin");
   const railLinks = [...document.querySelectorAll(".rail a[href^='#']")];
   const rail = document.querySelector(".rail");
+  const isMobileLang = () => window.matchMedia("(max-width: 900px)").matches;
 
   /* ── Scroll reveal — Tokens::Anim::rowShow timing ── */
   const io = new IntersectionObserver(
@@ -51,19 +52,6 @@
   plugins.forEach((el) => io.observe(el));
   const footer = document.querySelector(".footer");
   if (footer) io.observe(footer);
-
-  /* ── Mobile dropdown nav toggle ── */
-  const burger = document.querySelector(".rail__burger");
-  function setNavOpen(open) {
-    rail.classList.toggle("is-open", open);
-    if (burger) burger.setAttribute("aria-expanded", open ? "true" : "false");
-  }
-  if (burger) {
-    burger.addEventListener("click", (e) => {
-      e.stopPropagation();
-      setNavOpen(!rail.classList.contains("is-open"));
-    });
-  }
 
   /* ── Floating nav hide/show on scroll ── */
   let lastScroll = 0;
@@ -87,20 +75,7 @@
     }
   }
 
-  window.addEventListener("scroll", onScroll, { passive: true });
-
-  // Close the dropdown when a link inside it is tapped
-  railLinks.forEach((link) => {
-    link.addEventListener("click", () => setNavOpen(false), { capture: true });
-  });
-  // Close when tapping anywhere outside the rail
-  document.addEventListener("pointerdown", (e) => {
-    if (rail.classList.contains("is-open") && !rail.contains(e.target)) {
-      setNavOpen(false);
-    }
-  });
-
-
+window.addEventListener("scroll", onScroll, { passive: true });
 
   /* ── Active section spy for floating nav ── */
   const spy = new IntersectionObserver(
@@ -384,10 +359,30 @@
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       const cy = rest.y + rest.h * 0.5;
+      const vertical = isMobileLang();
 
       if (expand < 0.08) {
         ctx.fillStyle = TEXT_ON;
         ctx.fillText(activeLang.toUpperCase(), rest.x + rest.w * 0.5, cy);
+      } else if (vertical) {
+        // Vertical morph: EN on top, RU below
+        const enY = rest.y + rest.h * 0.24;
+        const ruY = rest.y + rest.h * 0.76;
+        const enColor = activeLang === "en" ? TEXT_ON : "#6a6a6a";
+        const ruColor = activeLang === "ru" ? TEXT_ON : "#6a6a6a";
+        const a = Math.min(1, Math.max(0, (expand - 0.08) / 0.5));
+        ctx.globalAlpha = a;
+        ctx.fillStyle = enColor;
+        ctx.fillText("EN", rest.x + rest.w * 0.5, enY);
+        ctx.fillStyle = ruColor;
+        ctx.fillText("RU", rest.x + rest.w * 0.5, ruY);
+        ctx.globalAlpha = 1;
+        if (expand < 0.55) {
+          ctx.globalAlpha = 1 - a;
+          ctx.fillStyle = TEXT_ON;
+          ctx.fillText(activeLang.toUpperCase(), rest.x + rest.w * 0.5, cy);
+          ctx.globalAlpha = 1;
+        }
       } else {
         const mid = rest.x + rest.w * 0.5;
         const leftX = rest.x + rest.w * 0.28;
@@ -487,7 +482,20 @@
       // Fixed chip widths — no measure/translate tricks
       st.langCollapsedW = 44;
       st.langExpandedW = 44 * 2 + 6; // two chips + gap
+      st.langCollapsedH = 28;
+      st.langExpandedH = 28 * 2 + 6; // two chips + gap, vertical
+      st.tapped = false;
       st.syncLangWidth = () => {};
+      el.addEventListener("click", (e) => {
+        if (!isMobileLang()) return;
+        e.stopPropagation();
+        const ls = document.getElementById("langSwitch");
+        if (ls && ls.classList.contains("is-open")) {
+          closeMobileLang();
+        } else {
+          openMobileLang();
+        }
+      });
     }
 
     paintChip(st);
@@ -513,11 +521,23 @@
       );
 
       if (st.isLangSwitch) {
-        st.expand = approach(st.expand, st.over ? 1 : 0, st.over ? 0.18 : 0.16);
-        const c = st.langCollapsedW || 44;
-        const x = st.langExpandedW || 94;
-        st.el.style.width = `${c + (x - c) * st.expand}px`;
-        st.el.classList.toggle("is-open", st.expand > 0.08);
+        if (isMobileLang()) {
+          // Mobile: chip morphs downward (vertical growth) on tap
+          const target = st.tapped ? 1 : 0;
+          st.expand = approach(st.expand, target, target ? 0.18 : 0.16);
+          const ch = st.langCollapsedH || 28;
+          const xh = st.langExpandedH || 62;
+          st.el.style.width = "";
+          st.el.style.height = `${ch + (xh - ch) * st.expand}px`;
+          st.el.classList.toggle("is-open", st.expand > 0.08);
+        } else {
+          st.expand = approach(st.expand, st.over ? 1 : 0, st.over ? 0.18 : 0.16);
+          const c = st.langCollapsedW || 44;
+          const x = st.langExpandedW || 94;
+          st.el.style.width = `${c + (x - c) * st.expand}px`;
+          st.el.style.height = "";
+          st.el.classList.toggle("is-open", st.expand > 0.08);
+        }
       }
 
       if (st.over || st.down) {
@@ -735,9 +755,63 @@
   langButtons.forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
+      if (isMobileLang()) {
+        const st = chipState.get(langSwitchEl);
+        if (st && !st.tapped) {
+          // Collapsed chip: the active lang button covers it — tap opens the morph
+          openMobileLang();
+          return;
+        }
+        setLang(btn.dataset.lang);
+        closeMobileLang();
+        return;
+      }
       setLang(btn.dataset.lang);
     });
   });
+
+  // Mobile: tapping anywhere outside the lang chip closes it
+  const langSwitchEl = document.getElementById("langSwitch");
+
+  function openMobileLang() {
+    if (!langSwitchEl || !isMobileLang()) return;
+    const r = langSwitchEl.getBoundingClientRect();
+    const railR = rail.getBoundingClientRect();
+    // Absolute within the fixed navbar: grow down without shifting the header.
+    langSwitchEl.style.position = "absolute";
+    langSwitchEl.style.top = `${r.top - railR.top}px`;
+    langSwitchEl.style.left = `${r.left - railR.left}px`;
+    langSwitchEl.style.zIndex = "150";
+    langSwitchEl.style.margin = "0";
+    langSwitchEl.classList.add("is-open");
+    const st = chipState.get(langSwitchEl);
+    if (st) st.tapped = true;
+  }
+
+  function closeMobileLang() {
+    if (!langSwitchEl) return;
+    langSwitchEl.style.position = "";
+    langSwitchEl.style.top = "";
+    langSwitchEl.style.left = "";
+    langSwitchEl.style.zIndex = "";
+    langSwitchEl.classList.remove("is-open");
+    const st = chipState.get(langSwitchEl);
+    if (st) st.tapped = false;
+  }
+
+  if (langSwitchEl) {
+    document.addEventListener("pointerdown", (e) => {
+      if (isMobileLang() && langSwitchEl.classList.contains("is-open") && !langSwitchEl.contains(e.target)) {
+        closeMobileLang();
+      }
+    });
+    window.addEventListener("resize", () => {
+      if (!isMobileLang()) closeMobileLang();
+    });
+    window.addEventListener("scroll", () => {
+      if (langSwitchEl.classList.contains("is-open")) closeMobileLang();
+    }, { passive: true });
+  }
 
   initLang();
 
