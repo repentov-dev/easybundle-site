@@ -1,0 +1,6 @@
+.DS_Store
+server/.venv/
+server/data/*.db
+server/data/*.db-journal
+__pycache__/
+*.pyc

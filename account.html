@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Account — EASYBUNDLE</title>
+  <link rel="icon" href="assets/logo.png" type="image/png" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=IBM+Plex+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a class="skip" href="#account">Account</a>
+  <nav class="rail" aria-label="Site">
+    <div class="rail__inner">
+      <a href="/">EASYBUNDLE</a>
+      <span class="rail__divider"></span>
+      <a href="/#plugins">Plugins</a>
+    </div>
+  </nav>
+
+  <main class="account-page" id="account">
+    <div class="account-card" id="loginCard">
+      <h1>Account</h1>
+      <p class="lede">Log in with the email and password from your purchase email.</p>
+      <form class="checkout__form" id="loginForm">
+        <div class="checkout__field">
+          <label for="loginEmail">Email</label>
+          <input id="loginEmail" name="email" type="email" autocomplete="username" required />
+        </div>
+        <div class="checkout__field">
+          <label for="loginPass">Password</label>
+          <input id="loginPass" name="password" type="password" autocomplete="current-password" required />
+        </div>
+        <button class="checkout__submit" type="submit">Log in</button>
+        <p class="checkout__status" id="loginStatus" aria-live="polite"></p>
+      </form>
+    </div>
+
+    <div class="account-card" id="dashCard" hidden>
+      <h1>Your license</h1>
+      <p class="lede" id="dashHello"></p>
+      <dl class="account-meta">
+        <div>
+          <dt>Email</dt>
+          <dd id="dashEmail"></dd>
+        </div>
+        <div>
+          <dt>License key</dt>
+          <dd id="dashLicense"></dd>
+        </div>
+        <div>
+          <dt>Plugins</dt>
+          <dd id="dashPlugins"></dd>
+        </div>
+        <div>
+          <dt>Purchased</dt>
+          <dd id="dashDate"></dd>
+        </div>
+      </dl>
+      <button class="checkout__submit" type="button" id="logoutBtn" style="margin-top:20px;background:#2a2a2a;color:#f5f5f5">Log out</button>
+    </div>
+  </main>
+
+  <script>
+    const loginCard = document.getElementById("loginCard");
+    const dashCard = document.getElementById("dashCard");
+    const statusEl = document.getElementById("loginStatus");
+
+    function showUser(user) {
+      loginCard.hidden = true;
+      dashCard.hidden = false;
+      document.getElementById("dashHello").textContent =
+        `Hi ${user.first_name} — your EASYBUNDLE seat is active.`;
+      document.getElementById("dashEmail").textContent = user.email;
+      document.getElementById("dashLicense").textContent = user.license_key;
+      document.getElementById("dashPlugins").textContent = (user.plugins || []).join(" · ");
+      document.getElementById("dashDate").textContent = user.created_at
+        ? new Date(user.created_at).toLocaleString()
+        : "—";
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch("/api/me", { credentials: "same-origin" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.ok) showUser(data.user);
+      } catch (_) {}
+    }
+
+    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      statusEl.textContent = "Signing in…";
+      statusEl.className = "checkout__status";
+      const body = {
+        email: document.getElementById("loginEmail").value.trim(),
+        password: document.getElementById("loginPass").value,
+      };
+      try {
+        const res = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          statusEl.textContent = data.error || "Login failed";
+          statusEl.className = "checkout__status is-error";
+          return;
+        }
+        showUser(data.user);
+      } catch (err) {
+        statusEl.textContent = "Server offline — run: python3 server/app.py";
+        statusEl.className = "checkout__status is-error";
+      }
+    });
+
+    document.getElementById("logoutBtn").addEventListener("click", async () => {
+      await fetch("/api/logout", { method: "POST", credentials: "same-origin" });
+      dashCard.hidden = true;
+      loginCard.hidden = false;
+    });
+
+    refresh();
+  </script>
+</body>
+</html>

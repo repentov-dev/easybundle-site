@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EASYBUNDLE — repentov</title>
+  <meta name="description" content="EASYBUNDLE by repentov: METROOM, CAESAR, CAPSULE, REFLECT, SLOPE — minimum knobs, maximum character." />
+  <link rel="icon" href="assets/logo.png" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a class="skip" href="#plugins" data-i18n="skip">To plugins</a>
+
+  <!-- Floating Navigation -->
+  <nav class="rail" aria-label="Site">
+    <div class="rail__inner">
+      <a href="#caesar">CAESAR</a>
+      <a href="#capsule">CAPSULE</a>
+      <a href="#reflect">REFLECT</a>
+      <span class="rail__item"><a href="#slope">SLOPE</a><span class="rail__free" style="color:#804AFF">FREE</span></span>
+      <span class="rail__item"><a href="#metroom">METROOM</a><span class="rail__free" style="color:#FFD12D">FREE</span></span>
+      <span class="rail__divider"></span>
+      <div class="rail__langs" id="langSwitch" aria-label="Language">
+        <div class="rail__langs-inner">
+          <button class="rail__lang is-active" type="button" data-lang="en">EN</button>
+          <button class="rail__lang" type="button" data-lang="ru">RU</button>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <header class="hero">
+    <div class="hero__stage">
+      <h1 class="hero__brand">EASYBUNDLE</h1>
+      <p class="hero__line" data-i18n="hero.line">Smart plugins for musicians.</p>
+      <div class="hero__cta">
+        <a class="btn btn--primary" href="#plugins" data-i18n="hero.cta1">View plugins</a>
+        <button class="btn btn--buy" type="button" id="buyOpen" data-i18n="hero.ctaBuy">Buy bundle</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Plugins -->
+  <main id="plugins">
+
+    <!-- CAESAR -->
+    <article class="plugin" id="caesar" style="--accent:#FF3D6E">
+      <div class="wrap plugin__grid">
+        <div class="plugin__copy">
+          <p class="plugin__role" data-i18n="caesar.role">Vocal compressor</p>
+          <h2 class="plugin__name">CAESAR</h2>
+          <p class="plugin__sound" data-i18n="caesar.sound">One-knob smart vocal compressor.</p>
+          <ul class="plugin__pros">
+            <li data-i18n="caesar.pro1"><strong data-i18n="caesar.pro1t">Quick start:</strong> <span data-i18n="caesar.pro1d">turn on GS, raise Compression — the vocal locks in place with makeup, air, and tone already balanced.</span></li>
+            <li data-i18n="caesar.pro2"><strong data-i18n="caesar.pro2t">Built-in intelligence:</strong> <span data-i18n="caesar.pro2d">1176-style peak catch and LA-2A optical leveling with automatic attack, release, ratio, and knee — no timing math.</span></li>
+            <li data-i18n="caesar.pro3"><strong data-i18n="caesar.pro3t">Time saver:</strong> <span data-i18n="caesar.pro3d">skip the usual compressor dance — get mix-ready vocal punch and control on demos and sessions in seconds.</span></li>
+          </ul>
+        </div>
+        <figure class="plugin__shot" aria-label="CAESAR interface">
+          <div class="shot"><img src="assets/shots/caesar.png" alt="CAESAR UI" loading="lazy" /></div>
+        </figure>
+      </div>
+    </article>
+
+    <!-- CAPSULE -->
+    <article class="plugin" id="capsule" style="--accent:#49FEFF">
+      <div class="wrap plugin__grid plugin__grid--flip">
+        <div class="plugin__copy">
+          <p class="plugin__role" data-i18n="capsule.role">Tempo-synced reverb</p>
+          <h2 class="plugin__name">CAPSULE</h2>
+          <p class="plugin__sound" data-i18n="capsule.sound">Smart spatial reverb.</p>
+          <ul class="plugin__pros">
+            <li data-i18n="capsule.pro1"><strong data-i18n="capsule.pro1t">Quick start:</strong> <span data-i18n="capsule.pro1d">4 balanced presets for any task and instant sound improvement.</span></li>
+            <li data-i18n="capsule.pro2"><strong data-i18n="capsule.pro2t">Built-in intelligence:</strong> <span data-i18n="capsule.pro2d">powered by Metroom technology — automatically calculates ideal pre-delay and decay.</span></li>
+            <li data-i18n="capsule.pro3"><strong data-i18n="capsule.pro3t">Time saver:</strong> <span data-i18n="capsule.pro3d">forget manual calculations — get commercial-quality results on demos and live sessions in seconds.</span></li>
+          </ul>
+        </div>
+        <figure class="plugin__shot" aria-label="CAPSULE interface">
+          <div class="shot"><img src="assets/shots/capsule.png" alt="CAPSULE UI" loading="lazy" /></div>
+        </figure>
+      </div>
+    </article>
+
+    <!-- REFLECT -->
+    <article class="plugin" id="reflect" style="--accent:#FF4AA1">
+      <div class="wrap plugin__grid">
+        <div class="plugin__copy">
+          <p class="plugin__role" data-i18n="reflect.role">Atmospheric vocal delay</p>
+          <h2 class="plugin__name">REFLECT</h2>
+          <p class="plugin__sound" data-i18n="reflect.sound">Unique hybrid of delay and space.</p>
+          <ul class="plugin__pros">
+            <li data-i18n="reflect.pro1"><strong data-i18n="reflect.pro1t">New sonic character:</strong> <span data-i18n="reflect.pro1d">blurs the line between textural delay and atmospheric reverb.</span></li>
+            <li data-i18n="reflect.pro2"><strong data-i18n="reflect.pro2t">Full sync:</strong> <span data-i18n="reflect.pro2d">automatically locks to your session and sets ideal delay times.</span></li>
+            <li data-i18n="reflect.pro3"><strong data-i18n="reflect.pro3t">Experimental tool:</strong> <span data-i18n="reflect.pro3d">ideal for creating unique spaces, ambient trails and unusual sound effects.</span></li>
+          </ul>
+        </div>
+        <figure class="plugin__shot" aria-label="REFLECT interface">
+          <div class="shot"><img src="assets/shots/reflect.png" alt="REFLECT UI" loading="lazy" /></div>
+        </figure>
+      </div>
+    </article>
+
+    <!-- SLOPE -->
+    <article class="plugin" id="slope" style="--accent:#804AFF">
+      <div class="wrap plugin__grid plugin__grid--flip">
+        <div class="plugin__copy">
+          <p class="plugin__role" data-i18n="slope.role">Pitch &amp; formant</p>
+          <h2 class="plugin__name">SLOPE</h2>
+          <p class="plugin__sound" data-i18n="slope.sound">Crystal-clear pitch shifter.</p>
+          <ul class="plugin__pros">
+            <li data-i18n="slope.pro1"><strong data-i18n="slope.pro1t">Honest sound:</strong> <span data-i18n="slope.pro1d">shift pitch without dirt, metallic artifacts or quality loss.</span></li>
+            <li data-i18n="slope.pro2"><strong data-i18n="slope.pro2t">Absolute clarity:</strong> <span data-i18n="slope.pro2d">the algorithm preserves transients and source signal structure even at extreme shifts.</span></li>
+          </ul>
+        </div>
+        <figure class="plugin__shot" aria-label="SLOPE interface">
+          <div class="shot"><img src="assets/shots/slope.png" alt="SLOPE UI" loading="lazy" /></div>
+        </figure>
+      </div>
+    </article>
+
+    <!-- METROOM -->
+    <article class="plugin" id="metroom" style="--accent:#FFD12D">
+      <div class="wrap plugin__grid">
+        <div class="plugin__copy">
+          <p class="plugin__role" data-i18n="metroom.role">Tempo calculator</p>
+          <h2 class="plugin__name">METROOM</h2>
+          <p class="plugin__sound" data-i18n="metroom.sound">One-click delay calculator.</p>
+          <ul class="plugin__pros">
+            <li data-i18n="metroom.pro1"><strong data-i18n="metroom.pro1t">Perfect timing:</strong> <span data-i18n="metroom.pro1d">automatically reads the current BPM from your DAW.</span></li>
+            <li data-i18n="metroom.pro2"><strong data-i18n="metroom.pro2t">Fast workflow:</strong> <span data-i18n="metroom.pro2d">calculate precise pre-delay and delay values instantly.</span></li>
+            <li data-i18n="metroom.pro3"><strong data-i18n="metroom.pro3t">One-click copy:</strong> <span data-i18n="metroom.pro3d">press the button and paste into Valhalla or any other reverb.</span></li>
+          </ul>
+        </div>
+        <figure class="plugin__shot" aria-label="METROOM interface">
+          <div class="shot"><img src="assets/shots/metroom.png" alt="METROOM UI" loading="lazy" /></div>
+        </figure>
+      </div>
+    </article>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="wrap footer__inner">
+      <div>
+        <strong>EASYBUNDLE</strong>
+        <p>VST3 · AU · Standalone</p>
+      </div>
+      <a href="/account.html" data-i18n="nav.account">Account</a>
+    </div>
+  </footer>
+
+  <!-- Checkout -->
+  <div class="checkout" id="checkout" aria-hidden="true">
+    <div class="checkout__scrim" data-checkout-close></div>
+    <div class="checkout__panel" role="dialog" aria-modal="true" aria-labelledby="checkoutTitle">
+      <button class="checkout__close" type="button" aria-label="Close" data-checkout-close>&times;</button>
+      <p class="checkout__eyebrow" data-i18n="buy.eyebrow">EASYBUNDLE</p>
+      <h2 class="checkout__title" id="checkoutTitle" data-i18n="buy.title">Buy the bundle</h2>
+      <p class="checkout__price"><strong>$149</strong> <span data-i18n="buy.includes">— all five plugins, perpetual license</span></p>
+
+      <form class="checkout__form" id="checkoutForm" novalidate>
+        <div class="checkout__row checkout__row--2">
+          <div class="checkout__field">
+            <label for="buyFirst" data-i18n="buy.first">First name</label>
+            <input id="buyFirst" name="first_name" autocomplete="given-name" required />
+          </div>
+          <div class="checkout__field">
+            <label for="buyLast" data-i18n="buy.last">Last name</label>
+            <input id="buyLast" name="last_name" autocomplete="family-name" required />
+          </div>
+        </div>
+        <div class="checkout__field">
+          <label for="buyEmail" data-i18n="buy.email">Email</label>
+          <input id="buyEmail" name="email" type="email" autocomplete="email" required />
+        </div>
+        <div class="checkout__field">
+          <label for="buyCompany" data-i18n="buy.company">Company <span style="opacity:.5">(optional)</span></label>
+          <input id="buyCompany" name="company" autocomplete="organization" />
+        </div>
+        <div class="checkout__row checkout__row--2">
+          <div class="checkout__field">
+            <label for="buyCountry" data-i18n="buy.country">Country</label>
+            <select id="buyCountry" name="country" required>
+              <option value="">—</option>
+              <option value="RU" data-en="Russia" data-ru="Россия">Russia</option>
+              <option value="US" data-en="United States" data-ru="США">United States</option>
+              <option value="GB" data-en="United Kingdom" data-ru="Великобритания">United Kingdom</option>
+              <option value="DE" data-en="Germany" data-ru="Германия">Germany</option>
+              <option value="FR" data-en="France" data-ru="Франция">France</option>
+              <option value="NL" data-en="Netherlands" data-ru="Нидерланды">Netherlands</option>
+              <option value="PL" data-en="Poland" data-ru="Польша">Poland</option>
+              <option value="UA" data-en="Ukraine" data-ru="Украина">Ukraine</option>
+              <option value="BY" data-en="Belarus" data-ru="Беларусь">Belarus</option>
+              <option value="KZ" data-en="Kazakhstan" data-ru="Казахстан">Kazakhstan</option>
+              <option value="OTHER" data-en="Other" data-ru="Другое">Other</option>
+            </select>
+          </div>
+          <div class="checkout__field">
+            <label for="buyVat" data-i18n="buy.vat">VAT / Tax ID <span style="opacity:.5">(opt.)</span></label>
+            <input id="buyVat" name="vat" autocomplete="off" />
+          </div>
+        </div>
+        <label class="checkout__check">
+          <input type="checkbox" name="terms" required />
+          <span data-i18n="buy.terms">I agree to the license terms. One seat, personal use, no redistribution.</span>
+        </label>
+        <p class="checkout__note" data-i18n="buy.note">After payment we create your account, email the password and license key, and activate the bundle.</p>
+        <button class="checkout__submit" type="submit" data-i18n="buy.submit">Pay &amp; activate</button>
+        <p class="checkout__status" id="checkoutStatus" aria-live="polite"></p>
+      </form>
+
+      <div class="checkout__done" id="checkoutDone">
+        <p data-i18n="buy.done">Purchase complete. Check your email for the password and license key.</p>
+        <div>
+          <span data-i18n="buy.licenseLabel">License key</span>
+          <code id="checkoutLicense"></code>
+        </div>
+        <p><a href="/account.html" data-i18n="buy.openAccount">Open account</a></p>
+      </div>
+    </div>
+  </div>
+
+
+  <script src="main.js"></script>
+</body>
+</html>
