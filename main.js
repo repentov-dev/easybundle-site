@@ -593,11 +593,11 @@ window.addEventListener("scroll", onScroll, { passive: true });
       skip: "To plugins",
       "hero.line": "Smart plugins for musicians.",
       "hero.cta1": "View plugins",
-      "hero.ctaBuy": "Buy bundle",
+      "hero.ctaBuy": "Get free trial",
       "nav.account": "Account",
       "buy.eyebrow": "EASYBUNDLE",
-      "buy.title": "Buy the bundle",
-      "buy.includes": "— all five plugins, perpetual license",
+      "buy.title": "Get a free trial",
+      "buy.includes": "— all five plugins, free for 3 months",
       "buy.first": "First name",
       "buy.last": "Last name",
       "buy.email": "Email",
@@ -605,9 +605,9 @@ window.addEventListener("scroll", onScroll, { passive: true });
       "buy.country": "Country",
       "buy.vat": "VAT / Tax ID (opt.)",
       "buy.terms": "I agree to the license terms. One seat, personal use, no redistribution.",
-      "buy.note": "After checkout we create your account and email the password + license key.",
-      "buy.submit": "Pay & activate",
-      "buy.done": "Purchase complete. Check your email for the password and license key.",
+      "buy.note": "Register and we'll email your account password and a license key valid for a free 3-month trial.",
+      "buy.submit": "Get my free trial",
+      "buy.done": "Registration complete. Check your email for the password and license key.",
       "buy.licenseLabel": "License key",
       "buy.openAccount": "Open account",
       "buy.sending": "Creating account & license…",
@@ -655,11 +655,11 @@ window.addEventListener("scroll", onScroll, { passive: true });
       skip: "К плагинам",
       "hero.line": "Интеллектуальные плагины для музыкантов.",
       "hero.cta1": "Смотреть плагины",
-      "hero.ctaBuy": "Купить бандл",
+      "hero.ctaBuy": "Получить бесплатный триал",
       "nav.account": "Кабинет",
       "buy.eyebrow": "EASYBUNDLE",
-      "buy.title": "Купить бандл",
-      "buy.includes": "— все пять плагинов, бессрочная лицензия",
+      "buy.title": "Бесплатный триал",
+      "buy.includes": "— все пять плагинов, бесплатно на 3 месяца",
       "buy.first": "Имя",
       "buy.last": "Фамилия",
       "buy.email": "Email",
@@ -667,9 +667,9 @@ window.addEventListener("scroll", onScroll, { passive: true });
       "buy.country": "Страна",
       "buy.vat": "VAT / ИНН (необяз.)",
       "buy.terms": "Согласен с условиями лицензии. Один seat, личное использование, без редистрибуции.",
-      "buy.note": "После оформления создаём аккаунт и отправляем пароль + лицензионный ключ на email.",
-      "buy.submit": "Оплатить и активировать",
-      "buy.done": "Покупка оформлена. Пароль и ключ отправлены на email.",
+      "buy.note": "Зарегистрируйся — пришлём на email пароль от кабинета и ключ лицензии, действующий 3 месяца бесплатно.",
+      "buy.submit": "Получить бесплатный триал",
+      "buy.done": "Регистрация завершена. Пароль и ключ отправлены на email.",
       "buy.licenseLabel": "Лицензионный ключ",
       "buy.openAccount": "Открыть кабинет",
       "buy.sending": "Создаём аккаунт и лицензию…",
@@ -806,7 +806,7 @@ window.addEventListener("scroll", onScroll, { passive: true });
   initLang();
 
   /* ═══════════════════════════════════════════════════════
-     Checkout — Buy bundle
+     Registration — free 3-month trial
      ═══════════════════════════════════════════════════════ */
   const checkout = document.getElementById("checkout");
   const checkoutForm = document.getElementById("checkoutForm");
@@ -874,7 +874,7 @@ window.addEventListener("scroll", onScroll, { passive: true });
       if (submitBtn) submitBtn.disabled = true;
 
       try {
-        const res = await fetch("/api/purchase", {
+        const res = await fetch("/api/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
@@ -882,7 +882,7 @@ window.addEventListener("scroll", onScroll, { passive: true });
         });
         const data = await res.json();
         if (!res.ok || !data.ok) {
-          checkoutStatus.textContent = data.error || "Purchase failed";
+          checkoutStatus.textContent = data.error || "Registration failed";
           checkoutStatus.className = "checkout__status is-error";
           if (submitBtn) submitBtn.disabled = false;
           return;

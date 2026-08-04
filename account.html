@@ -21,7 +21,7 @@
   <main class="account-page" id="account">
     <div class="account-card" id="loginCard">
       <h1>Account</h1>
-      <p class="lede">Log in with the email and password from your purchase email.</p>
+      <p class="lede">Log in with the email and password from your free trial registration.</p>
       <form class="checkout__form" id="loginForm">
         <div class="checkout__field">
           <label for="loginEmail">Email</label>
@@ -57,7 +57,7 @@
           <dd id="dashExpiry"></dd>
         </div>
         <div>
-          <dt>Purchased</dt>
+          <dt>Registered</dt>
           <dd id="dashDate"></dd>
         </div>
       </dl>
@@ -75,7 +75,7 @@
       loginCard.hidden = true;
       dashCard.hidden = false;
       document.getElementById("dashHello").textContent =
-        `Hi ${user.first_name} — your EASYBUNDLE seat is active.`;
+        `Hi ${user.first_name} — your free EASYBUNDLE trial is active.`;
       document.getElementById("dashEmail").textContent = user.email;
       document.getElementById("dashLicense").textContent = user.license_key;
       document.getElementById("dashPlugins").textContent = (user.plugins || []).join(" · ");

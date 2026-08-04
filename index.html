@@ -39,7 +39,7 @@
       <p class="hero__line" data-i18n="hero.line">Smart plugins for musicians.</p>
       <div class="hero__cta">
         <a class="btn btn--primary" href="#plugins" data-i18n="hero.cta1">View plugins</a>
-        <button class="btn btn--buy" type="button" id="buyOpen" data-i18n="hero.ctaBuy">Buy bundle</button>
+        <button class="btn btn--buy" type="button" id="buyOpen" data-i18n="hero.ctaBuy">Get free trial</button>
       </div>
     </div>
   </header>
@@ -160,8 +160,8 @@
     <div class="checkout__panel" role="dialog" aria-modal="true" aria-labelledby="checkoutTitle">
       <button class="checkout__close" type="button" aria-label="Close" data-checkout-close>&times;</button>
       <p class="checkout__eyebrow" data-i18n="buy.eyebrow">EASYBUNDLE</p>
-      <h2 class="checkout__title" id="checkoutTitle" data-i18n="buy.title">Buy the bundle</h2>
-      <p class="checkout__price"><strong>$149</strong> <span data-i18n="buy.includes">— all five plugins, perpetual license</span></p>
+      <h2 class="checkout__title" id="checkoutTitle" data-i18n="buy.title">Get a free trial</h2>
+      <p class="checkout__price" data-i18n="buy.includes">— all five plugins, free for 3 months</p>
 
       <form class="checkout__form" id="checkoutForm" novalidate>
         <div class="checkout__row checkout__row--2">
@@ -207,15 +207,14 @@
         </div>
         <label class="checkout__check">
           <input type="checkbox" name="terms" required />
-          <span data-i18n="buy.terms">I agree to the license terms. One seat, personal use, no redistribution.</span>
-        </label>
-        <p class="checkout__note" data-i18n="buy.note">After payment we create your account, email the password and license key, and activate the bundle.</p>
-        <button class="checkout__submit" type="submit" data-i18n="buy.submit">Pay &amp; activate</button>
+          <span data-i18n="buy.terms">I agree to the license terms. One seat, personal use, no redistribution.</span>        </label>
+        <p class="checkout__note" data-i18n="buy.note">Register and we'll email your account password and a license key valid for a free 3-month trial.</p>
+        <button class="checkout__submit" type="submit" data-i18n="buy.submit">Get my free trial</button>
         <p class="checkout__status" id="checkoutStatus" aria-live="polite"></p>
       </form>
 
       <div class="checkout__done" id="checkoutDone">
-        <p data-i18n="buy.done">Purchase complete. Check your email for the password and license key.</p>
+        <p data-i18n="buy.done">Registration complete. Check your email for the password and license key.</p>
         <div>
           <span data-i18n="buy.licenseLabel">License key</span>
           <code id="checkoutLicense"></code>

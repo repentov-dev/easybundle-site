@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""EASYBUNDLE checkout + account API.
+"""EASYBUNDLE free-trial registration + account API.
 
-Typical plugin purchase fields collected:
+Typical registration fields collected:
   first/last name, email, company (opt), country, VAT/Tax ID (opt), terms.
 
-On purchase:
+On registration:
   - create account (hashed password)
-  - generate signed license key
+  - generate signed license key valid for a free 3-month trial
   - ensure signing key exists in ~/Desktop/Vibecoding/key
   - email password + license (SMTP or Mail.app / outbox fallback)
 
@@ -59,7 +59,7 @@ SESSION_SECRET_PATH = KEY_DIR / "easybundle_session.secret"
 
 PRODUCT = "EASYBUNDLE"
 PLUGINS = ["CAESAR", "CAPSULE", "REFLECT", "SLOPE", "METROOM"]
-BUNDLE_PRICE = os.environ.get("BUNDLE_PRICE", "149")
+TRIAL_MONTHS = 3
 GOD_EMAIL = os.environ.get("GOD_EMAIL", "i@am.god").strip().lower()
 
 app = Flask(__name__, static_folder=str(ROOT), static_url_path="")
@@ -362,16 +362,17 @@ def license_ok(expires_at: str | None, revoked: int) -> tuple[bool, str | None]:
 
 def build_email(to: str, first_name: str, password: str, license_key: str) -> EmailMessage:
     msg = EmailMessage()
-    msg["Subject"] = f"Your {PRODUCT} license & account"
+    msg["Subject"] = f"Your free {PRODUCT} trial license & account"
     msg["From"] = os.environ.get("SMTP_FROM", "licenses@easybundle.local")
     msg["To"] = to
     msg.set_content(
         f"Hi {first_name},\n\n"
-        f"Thanks for purchasing {PRODUCT}.\n\n"
+        f"Welcome to the free {PRODUCT} trial.\n\n"
         f"Account email: {to}\n"
         f"Temporary password: {password}\n"
         f"License key: {license_key}\n\n"
-        f"Included: {', '.join(PLUGINS)}\n\n"
+        f"Included: {', '.join(PLUGINS)}\n"
+        f"Your trial license is valid for {TRIAL_MONTHS} months.\n\n"
         f"Log in at /account.html and activate the key in each plugin.\n\n"
         f"— repentov / EASYBUNDLE\n"
     )
@@ -413,6 +414,7 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def parse_purchase(data: dict) -> tuple[dict | None, str | None]:
+    """Validate free-trial registration fields."""
     first = (data.get("first_name") or "").strip()
     last = (data.get("last_name") or "").strip()
     email = (data.get("email") or "").strip().lower()
@@ -549,8 +551,9 @@ def health():
     return jsonify({"ok": True, "product": PRODUCT, "key_dir": str(KEY_DIR)})
 
 
-@app.post("/api/purchase")
-def purchase():
+@app.post("/api/register")
+def register():
+    """Free registration → instant 3-month trial license for all plugins."""
     data = request.get_json(silent=True) or request.form.to_dict()
     if "terms" in data and isinstance(data["terms"], str):
         data["terms"] = data["terms"] in ("1", "true", "on", "yes")
@@ -568,8 +571,7 @@ def purchase():
 
     private = ensure_signing_keys()
     password = generate_password()
-    months = data.get("license_months")
-    expires_at = months_from_now(int(months)) if months else None
+    expires_at = months_from_now(TRIAL_MONTHS)
     license_key, license_payload = generate_license(parsed["email"], private, expires_at)
     password_hash = hash_password(password)
     created_at = datetime.now(timezone.utc).isoformat()
@@ -596,7 +598,7 @@ def purchase():
                 license_key_hash(license_key),
                 encrypt_str(license_key),
                 encrypt_str(license_payload),
-                expires_at.isoformat() if expires_at else None,
+                expires_at.isoformat(),
                 created_at,
             ),
         )
@@ -612,14 +614,14 @@ def purchase():
             "email": parsed["email"],
             "license_key": license_key,
             "plugins": PLUGINS,
-            "price": BUNDLE_PRICE,
+            "trial_months": TRIAL_MONTHS,
             "email_delivery": delivery,
             "account_url": "/account.html",
             # Password is emailed; also returned once so the UI can confirm in-dev.
             "password_emailed": True,
             "temp_password": password,
-            "expires_at": expires_at.isoformat() if expires_at else None,
-            "lifetime": expires_at is None,
+            "expires_at": expires_at.isoformat(),
+            "lifetime": False,
         }
     )
 
