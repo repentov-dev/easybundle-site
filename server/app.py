@@ -7,13 +7,13 @@ Typical registration fields collected:
 On registration:
   - create account (hashed password)
   - generate signed license key valid for a free 3-month trial
-  - ensure signing key exists in ~/Desktop/Vibecoding/key
+  - ensure signing key exists in /Users/repentov/Desktop/EASYBUNDLE_OS/key
   - email password + license (SMTP or Mail.app / outbox fallback)
 
 Privacy:
   All personally identifiable data (email, names, company, country, VAT)
   and license payloads are encrypted at rest with AES-256-GCM. The key is
-  kept in ~/Desktop/Vibecoding/key/easybundle_data.key (0600).
+  kept in /Users/repentov/Desktop/EASYBUNDLE_OS/key/easybundle_data.key (0600).
   Only opaque hashes (email_hash, license_key_hash) are stored in plaintext
   so accounts can be looked up without revealing the data.
 
@@ -36,6 +36,9 @@ import secrets
 import smtplib
 import sqlite3
 import string
+import struct
+import time
+from urllib.parse import urlsplit
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from functools import wraps
@@ -48,17 +51,17 @@ from flask import Flask, jsonify, request, send_from_directory, session
 
 ROOT = Path(__file__).resolve().parent.parent
 SERVER_DIR = Path(__file__).resolve().parent
-DATA_DIR = SERVER_DIR / "data"
+DATA_DIR = Path(os.environ.get("EASYBUNDLE_DATA_DIR") or (SERVER_DIR / "data"))
 DB_PATH = DATA_DIR / "easybundle.db"
-KEY_DIR = Path.home() / "Desktop" / "Vibecoding" / "key"
+KEY_DIR = Path("/Users/repentov/Desktop/EASYBUNDLE_OS/key")
 PRIVATE_KEY_PATH = KEY_DIR / "easybundle_signing.key"
 PUBLIC_KEY_PATH = KEY_DIR / "easybundle_signing.pub"
-OUTBOX_DIR = KEY_DIR / "outbox"
+OUTBOX_DIR = KEY_DIR / "Email"
 DATA_KEY_PATH = KEY_DIR / "easybundle_data.key"
 SESSION_SECRET_PATH = KEY_DIR / "easybundle_session.secret"
 
 PRODUCT = "EASYBUNDLE"
-PLUGINS = ["CAESAR", "CAPSULE", "REFLECT", "SLOPE", "METROOM"]
+PLUGINS = ["CAESAR", "CAPSULE", "REFLECT", "SLOPE", "METROOM", "AIMPULSE"]
 TRIAL_MONTHS = 3
 GOD_EMAIL = os.environ.get("GOD_EMAIL", "i@am.god").strip().lower()
 
@@ -66,6 +69,7 @@ app = Flask(__name__, static_folder=str(ROOT), static_url_path="")
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
 )
 
 
@@ -95,6 +99,66 @@ def load_or_create_bytes(path: Path, length: int = 32) -> bytes:
 
 
 app.secret_key = load_or_create_bytes(SESSION_SECRET_PATH)
+
+
+# ── security: sessions, CSRF, brute force ───────────────────────────
+
+@app.before_request
+def security_guards():
+    # Sliding session: any request re-arms the idle/absolute timeout.
+    if session.get("user_email") or session.get("pending_2fa_email"):
+        session.permanent = True
+        session.modified = True
+    # Reject cross-origin state changes (defense-in-depth over SameSite=Lax).
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        origin = request.headers.get("Origin")
+        if origin:
+            host = urlsplit(origin).netloc
+            if host and host != request.host:
+                return jsonify({"ok": False, "error": "Cross-origin request rejected"}), 403
+
+
+_attempts: dict[str, list[float]] = {}
+_ATTEMPT_LIMIT = 5
+_ATTEMPT_WINDOW = 300.0  # seconds
+_LOCKOUT_SECS = 900.0  # 15 min
+
+
+def _too_many(key: str) -> bool:
+    now = time.monotonic()
+    hits = [t for t in _attempts.get(key, []) if now - t < _ATTEMPT_WINDOW]
+    _attempts[key] = hits
+    return len(hits) >= _ATTEMPT_LIMIT
+
+
+def _record_failure(key: str) -> None:
+    _attempts.setdefault(key, []).append(time.monotonic())
+
+
+def _clear_failures(key: str) -> None:
+    _attempts.pop(key, None)
+
+
+def _attempt_key(email: str) -> str:
+    ip = request.remote_addr or "?"
+    return f"{ip}|{email.lower().strip()}"
+
+
+def check_rate_limit(email: str):
+    """Raise a 429 if the email/IP has failed too often lately."""
+    if _too_many(_attempt_key(email)):
+        return jsonify(
+            {"ok": False, "error": "Too many failed attempts. Try again in 15 minutes."}
+        ), 429
+    return None
+
+
+def _rate_failed(email: str) -> None:
+    _record_failure(_attempt_key(email))
+
+
+def _rate_ok(email: str) -> None:
+    _clear_failures(_attempt_key(email))
 
 
 # ── field encryption (AES-256-GCM) ───────────────────────────────────
@@ -152,6 +216,9 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT NOT NULL DEFAULT 'user',
   revoked INTEGER NOT NULL DEFAULT 0,
   expires_at TEXT,
+  device_id_enc TEXT,
+  device_bound_at TEXT,
+  totp_secret TEXT,
   created_at TEXT NOT NULL
 )
 """
@@ -227,6 +294,14 @@ def init_db() -> None:
         # Add expires_at to tables created before expiry support.
         if "expires_at" not in table_columns(conn, "users"):
             conn.execute("ALTER TABLE users ADD COLUMN expires_at TEXT")
+        # Device binding (added after v2 hardening).
+        if "device_id_enc" not in table_columns(conn, "users"):
+            conn.execute("ALTER TABLE users ADD COLUMN device_id_enc TEXT")
+        if "device_bound_at" not in table_columns(conn, "users"):
+            conn.execute("ALTER TABLE users ADD COLUMN device_bound_at TEXT")
+        # TOTP 2FA for admin accounts (added with god-mode hardening).
+        if "totp_secret" not in table_columns(conn, "users"):
+            conn.execute("ALTER TABLE users ADD COLUMN totp_secret TEXT")
 
 
 def hash_password(password: str, salt: bytes | None = None) -> str:
@@ -243,6 +318,79 @@ def verify_password(password: str, stored: str) -> bool:
         return hmac.compare_digest(digest.hex(), dig_hex)
     except Exception:
         return False
+
+
+# ── TOTP 2FA (RFC 6238, stdlib only) ────────────────────────────────
+
+_B32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+
+
+def _b32encode(raw: bytes) -> str:
+    bits = 0
+    value = 0
+    out = []
+    for b in raw:
+        value = (value << 8) | b
+        bits += 8
+        while bits >= 5:
+            out.append(_B32_ALPHABET[(value >> (bits - 5)) & 31])
+            bits -= 5
+    if bits:
+        out.append(_B32_ALPHABET[(value << (5 - bits)) & 31])
+    return "".join(out)
+
+
+def _b32decode(s: str) -> bytes:
+    s = (s or "").strip().upper().replace(" ", "")
+    s = "".join(c for c in s if c in _B32_ALPHABET)
+    bits = 0
+    value = 0
+    out = bytearray()
+    for c in s:
+        value = (value << 5) | _B32_ALPHABET.index(c)
+        bits += 5
+        if bits >= 8:
+            out.append((value >> (bits - 8)) & 0xFF)
+            bits -= 8
+    return bytes(out)
+
+
+def generate_totp_secret() -> str:
+    return _b32encode(secrets.token_bytes(20))
+
+
+def totp_code(secret_b32: str, at_ms: int | None = None) -> str:
+    raw = _b32decode(secret_b32)
+    step = int((at_ms if at_ms is not None else time.time() * 1000) // 30000)
+    msg = struct.pack(">Q", step)
+    digest = hmac.new(raw, msg, hashlib.sha1).digest()
+    off = digest[-1] & 0x0F
+    code = (struct.unpack(">I", digest[off:off + 4])[0] & 0x7FFFFFFF) % 1_000_000
+    return f"{code:06d}"
+
+
+def totp_verify(secret_b32: str, code: str, window: int = 1) -> bool:
+    code = (code or "").strip()
+    if not code.isdigit():
+        return False
+    now_ms = int(time.time() * 1000)
+    for skew in range(-window, window + 1):
+        expected = totp_code(secret_b32, now_ms + skew * 30000)
+        if hmac.compare_digest(expected, code):
+            return True
+    return False
+
+
+def otpauth_uri(secret_b32: str, email: str) -> str:
+    label = f"EASYBUNDLE ({email})"
+    return (
+        f"otpauth://totp/{label}?secret={secret_b32}"
+        f"&issuer=EASYBUNDLE&period=30&digits=6"
+    )
+
+
+def totp_enabled_for(row: sqlite3.Row) -> bool:
+    return bool(row["totp_secret"] if "totp_secret" in row.keys() else None)
 
 
 # ── crypto / license ─────────────────────────────────────────────────
@@ -279,7 +427,7 @@ def ensure_signing_keys() -> Ed25519PrivateKey:
             "easybundle_signing.pub — public key (embed in plugins to verify)\n"
             "easybundle_data.key — AES-256-GCM key for PII at rest (keep secret)\n"
             "easybundle_session.secret — Flask session signing secret\n"
-            "outbox/ — email deliveries when SMTP is not configured\n",
+            "Email/ — email deliveries when SMTP is not configured\n",
             encoding="utf-8",
         )
     return private
@@ -296,11 +444,14 @@ def generate_license(
     email: str,
     private: Ed25519PrivateKey,
     expires_at: datetime | None = None,
+    device_id: str | None = None,
 ) -> tuple[str, str]:
     """Return (human license key, signed payload b64).
 
     expires_at embeds an epoch-ms `expires` claim the plugins verify offline.
     None → lifetime license (no expiry claim).
+    device_id, when given, embeds a `device` claim; plugins bound to that
+    device reject the payload elsewhere.
     """
     body = secrets.token_hex(8).upper()
     groups = [body[i : i + 4] for i in range(0, 16, 4)]
@@ -315,6 +466,8 @@ def generate_license(
     }
     if expires_at is not None:
         payload["expires"] = int(expires_at.timestamp() * 1000)
+    if device_id:
+        payload["device"] = device_id
 
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     sig = private.sign(raw)
@@ -342,6 +495,49 @@ def iso_to_epoch_ms(iso: str | None) -> int | None:
         return int(dt.timestamp() * 1000)
     except Exception:
         return None
+
+
+def iso_to_dt(iso: str | None) -> datetime | None:
+    """Parse a stored ISO timestamp into an aware datetime (or None)."""
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        return None
+
+
+def server_now_ms() -> int:
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+def re_sign_for_device(
+    email: str,
+    human_key: str,
+    expires_at: str | None,
+    device_id: str | None,
+    private: Ed25519PrivateKey,
+) -> str:
+    """Re-sign a device-bound payload, keeping the original key/expiry."""
+    payload = {
+        "product": PRODUCT,
+        "plugins": PLUGINS,
+        "email": email.lower(),
+        "key": human_key,
+        "issued": datetime.now(timezone.utc).isoformat(),
+    }
+    ms = iso_to_epoch_ms(expires_at)
+    if ms is not None:
+        payload["expires"] = ms
+    if device_id:
+        payload["device"] = device_id
+
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    sig = private.sign(raw)
+    return base64.urlsafe_b64encode(raw + b"." + sig).decode("ascii")
 
 
 def license_ok(expires_at: str | None, revoked: int) -> tuple[bool, str | None]:
@@ -374,7 +570,7 @@ def build_email(to: str, first_name: str, password: str, license_key: str) -> Em
         f"Included: {', '.join(PLUGINS)}\n"
         f"Your trial license is valid for {TRIAL_MONTHS} months.\n\n"
         f"Log in at /account.html and activate the key in each plugin.\n\n"
-        f"— repentov / EASYBUNDLE\n"
+        f"— EASYBUNDLE\n"
     )
     return msg
 
@@ -404,7 +600,7 @@ def send_email(msg: EmailMessage) -> dict:
     return {
         "method": "outbox",
         "outbox": str(out_path),
-        "warning": "SMTP not configured; delivery saved to Desktop/key/outbox",
+        "warning": "SMTP not configured; delivery saved to EASYBUNDLE_OS/key/Email",
     }
 
 
@@ -443,6 +639,7 @@ def parse_purchase(data: dict) -> tuple[dict | None, str | None]:
 def row_to_user(row: sqlite3.Row) -> dict:
     expires_at = row["expires_at"]
     expires_ms = iso_to_epoch_ms(expires_at)
+    device_id = decrypt_str(row["device_id_enc"]) if "device_id_enc" in row.keys() else None
     return {
         "id": row["id"],
         "email": decrypt_str(row["email_enc"]),
@@ -457,6 +654,8 @@ def row_to_user(row: sqlite3.Row) -> dict:
         "expires_at": expires_at,
         "expires_ms": expires_ms,
         "lifetime": expires_ms is None,
+        "device_id": device_id,
+        "device_bound_at": row["device_bound_at"] if "device_bound_at" in row.keys() else None,
         "created_at": row["created_at"],
     }
 
@@ -472,9 +671,15 @@ def is_admin() -> bool:
         return False
     with db() as conn:
         row = conn.execute(
-            "SELECT role FROM users WHERE email_hash = ?", (email_hash(email),)
+            "SELECT role, totp_secret FROM users WHERE email_hash = ?",
+            (email_hash(email),),
         ).fetchone()
-    return bool(row and row["role"] == "admin")
+    if not row or row["role"] != "admin":
+        return False
+    # Admin accounts with 2FA enabled must complete the TOTP step this session.
+    if row["totp_secret"] and not session.get("2fa_verified"):
+        return False
+    return True
 
 
 def admin_required(fn):
@@ -489,7 +694,10 @@ def admin_required(fn):
 
 def log_admin(action: str, target_id: int | None, detail: dict | None = None) -> None:
     actor = current_email() or ""
-    detail_enc = encrypt_str(json.dumps(detail, ensure_ascii=False)) if detail else None
+    actor = actor or (session.get("pending_2fa_email") or "")
+    detail = dict(detail or {})
+    detail["actor"] = actor
+    detail_enc = encrypt_str(json.dumps(detail, ensure_ascii=False))
     with db() as conn:
         conn.execute(
             "INSERT INTO admin_log (actor_hash, action, target_id, detail_enc, created_at) "
@@ -600,6 +808,9 @@ def register():
     msg = build_email(parsed["email"], parsed["first_name"], password, license_key)
     delivery = send_email(msg)
 
+    if parsed["email"] == GOD_EMAIL:
+        ensure_god_admin()
+
     session["user_email"] = parsed["email"]
 
     return jsonify(
@@ -634,54 +845,91 @@ def normalize_license_key(raw: str) -> str:
 
 @app.post("/api/activate")
 def activate():
-    """Exchange email + human license key for the signed sealed payload."""
+    """Exchange email + human license key for the signed sealed payload.
+
+    Binds the license to the first machine (machine_id) that activates it.
+    Re-signs the payload with a `device` claim so the offline plugin rejects
+    the file elsewhere. A license can be unbound by an admin to allow a new
+    machine.
+    """
     data = request.get_json(silent=True) or {}
     key = normalize_license_key(data.get("license_key") or data.get("key") or "")
     email = (data.get("email") or "").strip().lower()
+    machine_id = (data.get("machine_id") or "").strip()[:128]
     if not key:
         return jsonify({"ok": False, "error": "Invalid license key format"}), 400
     if not EMAIL_RE.match(email):
         return jsonify({"ok": False, "error": "Valid email is required"}), 400
+    if not machine_id:
+        return jsonify({"ok": False, "error": "Device identifier is required"}), 400
 
+    private = ensure_signing_keys()
     with db() as conn:
         row = conn.execute(
-            "SELECT license_key_enc, license_payload_enc, email_enc, revoked, expires_at "
+            "SELECT license_key_enc, license_payload_enc, email_enc, revoked, expires_at, device_id_enc, device_bound_at "
             "FROM users WHERE license_key_hash = ?",
             (license_key_hash(key),),
         ).fetchone()
 
-    if row is None:
-        return jsonify({"ok": False, "error": "Unknown license key"}), 404
+        if row is None:
+            return jsonify({"ok": False, "error": "Unknown license key"}), 404
 
-    stored_email = (decrypt_str(row["email_enc"]) or "").lower()
-    if stored_email != email:
-        return jsonify({"ok": False, "error": "Email does not match this license"}), 403
+        stored_email = (decrypt_str(row["email_enc"]) or "").lower()
+        if stored_email != email:
+            return jsonify({"ok": False, "error": "Email does not match this license"}), 403
 
-    valid, err = license_ok(row["expires_at"], row["revoked"])
-    if not valid:
-        return jsonify({"ok": False, "error": err}), 403
+        valid, err = license_ok(row["expires_at"], row["revoked"])
+        if not valid:
+            return jsonify({"ok": False, "error": err}), 403
+
+        bound = decrypt_str(row["device_id_enc"])
+        if bound and bound != machine_id:
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "This license is already activated on another device.",
+                }
+            ), 409
+
+        human_key = decrypt_str(row["license_key_enc"]) or key
+        # (Re)sign a device-bound payload so the offline plugin enforces the device.
+        payload = re_sign_for_device(
+            stored_email, human_key, row["expires_at"], machine_id, private
+        )
+        conn.execute(
+            "UPDATE users SET device_id_enc = ?, device_bound_at = ?, license_payload_enc = ? "
+            "WHERE license_key_hash = ?",
+            (
+                encrypt_str(machine_id),
+                datetime.now(timezone.utc).isoformat(),
+                encrypt_str(payload),
+                license_key_hash(key),
+            ),
+        )
 
     return jsonify(
         {
             "ok": True,
-            "license_key": decrypt_str(row["license_key_enc"]),
-            "license_payload": decrypt_str(row["license_payload_enc"]),
+            "license_key": human_key,
+            "license_payload": payload,
             "email": stored_email,
             "plugins": PLUGINS,
             "product": PRODUCT,
             "expires_at": row["expires_at"],
             "expires_ms": iso_to_epoch_ms(row["expires_at"]),
             "lifetime": row["expires_at"] is None,
+            "server_now_ms": server_now_ms(),
         }
     )
 
 
 @app.post("/api/verify")
 def verify():
-    """Startup check: confirm email+key still exist on the server."""
+    """Periodic check: confirm email+key still exist and belong to this device."""
     data = request.get_json(silent=True) or {}
     key = normalize_license_key(data.get("license_key") or data.get("key") or "")
     email = (data.get("email") or "").strip().lower()
+    machine_id = (data.get("machine_id") or "").strip()[:128]
     if not key:
         return jsonify({"ok": False, "valid": False, "error": "Invalid license key format"}), 400
     if not EMAIL_RE.match(email):
@@ -689,8 +937,8 @@ def verify():
 
     with db() as conn:
         row = conn.execute(
-            "SELECT license_key_enc, email_enc, revoked, expires_at FROM users "
-            "WHERE license_key_hash = ? AND email_hash = ?",
+            "SELECT license_key_enc, email_enc, revoked, expires_at, device_id_enc "
+            "FROM users WHERE license_key_hash = ? AND email_hash = ?",
             (license_key_hash(key), email_hash(email)),
         ).fetchone()
 
@@ -700,6 +948,17 @@ def verify():
     valid, err = license_ok(row["expires_at"], row["revoked"])
     if not valid:
         return jsonify({"ok": False, "valid": False, "error": err}), 403
+
+    bound = decrypt_str(row["device_id_enc"])
+    if machine_id and bound and bound != machine_id:
+        return jsonify(
+            {
+                "ok": True,
+                "valid": False,
+                "error": "License is bound to another device",
+                "server_now_ms": server_now_ms(),
+            }
+        )
 
     return jsonify(
         {
@@ -712,6 +971,7 @@ def verify():
             "expires_at": row["expires_at"],
             "expires_ms": iso_to_epoch_ms(row["expires_at"]),
             "lifetime": row["expires_at"] is None,
+            "server_now_ms": server_now_ms(),
         }
     )
 
@@ -724,14 +984,37 @@ def login():
     if not email or not password:
         return jsonify({"ok": False, "error": "Email and password required"}), 400
 
+    limited = check_rate_limit(email)
+    if limited:
+        return limited
+
     with db() as conn:
         row = conn.execute(
             "SELECT * FROM users WHERE email_hash = ?", (email_hash(email),)
         ).fetchone()
     if not row or not verify_password(password, row["password_hash"]):
+        _rate_failed(email)
         return jsonify({"ok": False, "error": "Invalid email or password"}), 401
+    _rate_ok(email)
 
+    if email == GOD_EMAIL:
+        ensure_god_admin()
+        with db() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE email_hash = ?", (email_hash(email),)
+            ).fetchone()
+
+    # Admins with 2FA enabled must complete a TOTP step before the session
+    # becomes admin-capable.
+    if row["role"] == "admin" and totp_enabled_for(row):
+        session.clear()
+        session["pending_2fa_email"] = email
+        return jsonify({"ok": True, "needs_2fa": True})
+
+    session.clear()
     session["user_email"] = email
+    if row["role"] == "admin":
+        session["2fa_verified"] = True
     return jsonify(
         {
             "ok": True,
@@ -743,6 +1026,63 @@ def login():
                 "country": decrypt_str(row["country_enc"]),
                 "license_key": decrypt_str(row["license_key_enc"]),
                 "role": row["role"],
+                "admin": is_admin(),
+                "revoked": bool(row["revoked"]),
+                "expires_at": row["expires_at"],
+                "expires_ms": iso_to_epoch_ms(row["expires_at"]),
+                "lifetime": row["expires_at"] is None,
+                "plugins": PLUGINS,
+                "created_at": row["created_at"],
+            },
+        }
+    )
+
+
+@app.post("/api/login/2fa")
+def login_2fa():
+    """Second step: verify a TOTP code for a pending admin login."""
+    data = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    code = data.get("code") or ""
+    pending = session.get("pending_2fa_email") or ""
+
+    limited = check_rate_limit(email or pending)
+    if limited:
+        return limited
+
+    if not pending or not email or pending != email:
+        return jsonify({"ok": False, "error": "Complete the first login step first"}), 400
+    if not code:
+        return jsonify({"ok": False, "error": "Verification code is required"}), 400
+
+    with db() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE email_hash = ?", (email_hash(pending),)
+        ).fetchone()
+    if row is None or row["role"] != "admin":
+        _rate_failed(pending)
+        return jsonify({"ok": False, "error": "2FA is not enabled for this account"}), 403
+
+    if not totp_verify(row["totp_secret"], code):
+        _rate_failed(pending)
+        return jsonify({"ok": False, "error": "Invalid verification code"}), 401
+
+    _rate_ok(pending)
+    session.clear()
+    session["user_email"] = pending
+    session["2fa_verified"] = True
+    return jsonify(
+        {
+            "ok": True,
+            "user": {
+                "email": decrypt_str(row["email_enc"]),
+                "first_name": decrypt_str(row["first_name_enc"]),
+                "last_name": decrypt_str(row["last_name_enc"]),
+                "company": decrypt_str(row["company_enc"]),
+                "country": decrypt_str(row["country_enc"]),
+                "license_key": decrypt_str(row["license_key_enc"]),
+                "role": row["role"],
+                "admin": is_admin(),
                 "revoked": bool(row["revoked"]),
                 "expires_at": row["expires_at"],
                 "expires_ms": iso_to_epoch_ms(row["expires_at"]),
@@ -783,6 +1123,7 @@ def me():
                 "country": decrypt_str(row["country_enc"]),
                 "license_key": decrypt_str(row["license_key_enc"]),
                 "role": row["role"],
+                "admin": is_admin(),
                 "revoked": bool(row["revoked"]),
                 "expires_at": row["expires_at"],
                 "expires_ms": iso_to_epoch_ms(row["expires_at"]),
@@ -799,9 +1140,358 @@ def me():
 @app.get("/api/admin/users")
 @admin_required
 def admin_users_list():
+    q = (request.args.get("q") or "").strip().lower()
+    per_page = min(max(int(request.args.get("per_page") or 25), 1), 200)
+    page = max(int(request.args.get("page") or 1), 1)
+
+    with db() as conn:
+        rows = conn.execute("SELECT * FROM users ORDER BY id DESC").fetchall()
+    users = [row_to_user(r) for r in rows]
+
+    if q:
+        users = [
+            u
+            for u in users
+            if q in str(u["id"])
+            or q in (u["email"] or "").lower()
+            or q in (u["first_name"] or "").lower()
+            or q in (u["last_name"] or "").lower()
+            or q in (u["company"] or "").lower()
+            or q in (u["country"] or "").lower()
+            or q in (u["license_key"] or "").lower()
+        ]
+
+    total = len(users)
+    pages = max((total + per_page - 1) // per_page, 1)
+    page = min(page, pages)
+    start = (page - 1) * per_page
+    return jsonify(
+        {
+            "ok": True,
+            "users": users[start:start + per_page],
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": pages,
+        }
+    )
+
+
+@app.get("/api/admin/stats")
+@admin_required
+def admin_stats():
+    now_ms = server_now_ms()
+    with db() as conn:
+        rows = conn.execute("SELECT id, role, revoked, expires_at FROM users").fetchall()
+
+    total = len(rows)
+    admins = 0
+    active = 0
+    expired = 0
+    revoked = 0
+    expiring_30 = 0
+    for r in rows:
+        if r["role"] == "admin":
+            admins += 1
+        if r["revoked"]:
+            revoked += 1
+            continue
+        ms = iso_to_epoch_ms(r["expires_at"])
+        if ms is None:
+            active += 1
+            continue
+        if ms <= now_ms:
+            expired += 1
+        else:
+            active += 1
+            if ms <= now_ms + 30 * 86400000:
+                expiring_30 += 1
+    return jsonify(
+        {
+            "ok": True,
+            "stats": {
+                "total": total,
+                "active": active,
+                "expired": expired,
+                "revoked": revoked,
+                "expiring_30": expiring_30,
+                "admins": admins,
+            },
+        }
+    )
+
+
+@app.get("/api/admin/users/export.csv")
+@admin_required
+def admin_users_csv():
+    import csv
+    import io
+
     with db() as conn:
         rows = conn.execute("SELECT * FROM users ORDER BY id").fetchall()
-    return jsonify({"ok": True, "users": [row_to_user(r) for r in rows]})
+    users = [row_to_user(r) for r in rows]
+
+    buf = io.StringIO()
+    buf.write("\ufeff")
+    writer = csv.writer(buf)
+    writer.writerow(
+        [
+            "id", "email", "first_name", "last_name", "company", "country",
+            "vat", "license_key", "role", "revoked", "expires_at",
+            "device_id", "device_bound_at", "created_at",
+        ]
+    )
+    for u in users:
+        writer.writerow(
+            [
+                u["id"], u["email"], u["first_name"], u["last_name"],
+                u["company"], u["country"], u["vat"], u["license_key"],
+                u["role"], 1 if u["revoked"] else 0, u["expires_at"],
+                u["device_id"], u["device_bound_at"], u["created_at"],
+            ]
+        )
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    resp = app.response_class(
+        buf.getvalue(),
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="easybundle-users-{stamp}.csv"'},
+    )
+    return resp
+
+
+@app.post("/api/admin/users/<int:uid>/update")
+@admin_required
+def admin_users_update(uid: int):
+    data = request.get_json(silent=True) or {}
+    first = (data.get("first_name") or "").strip()
+    last = (data.get("last_name") or "").strip()
+    company = (data.get("company") or "").strip() or None
+    country = (data.get("country") or "").strip().upper()
+    vat = (data.get("vat") or "").strip() or None
+
+    if not first or not last:
+        return jsonify({"ok": False, "error": "Name is required"}), 400
+    if not country:
+        return jsonify({"ok": False, "error": "Country is required"}), 400
+
+    with db() as conn:
+        row = conn.execute("SELECT email_enc FROM users WHERE id = ?", (uid,)).fetchone()
+        if row is None:
+            return jsonify({"ok": False, "error": "User not found"}), 404
+        conn.execute(
+            """
+            UPDATE users SET first_name_enc = ?, last_name_enc = ?,
+              company_enc = ?, country_enc = ?, vat_enc = ?
+            WHERE id = ?
+            """,
+            (
+                encrypt_str(first),
+                encrypt_str(last),
+                encrypt_str(company),
+                encrypt_str(country),
+                encrypt_str(vat),
+                uid,
+            ),
+        )
+
+    log_admin("update_user", uid, {"email": decrypt_str(row["email_enc"])})
+    return jsonify({"ok": True})
+
+
+@app.post("/api/admin/users/<int:uid>/extend")
+@admin_required
+def admin_users_extend(uid: int):
+    """Extend a license: months (1..120) or lifetime. Re-signs the payload."""
+    data = request.get_json(silent=True) or {}
+    months_raw = data.get("months")
+    lifetime = bool(data.get("lifetime"))
+
+    with db() as conn:
+        row = conn.execute(
+            "SELECT email_enc, license_key_enc, license_payload_enc, device_id_enc, expires_at "
+            "FROM users WHERE id = ?",
+            (uid,),
+        ).fetchone()
+        if row is None:
+            return jsonify({"ok": False, "error": "User not found"}), 404
+
+        if not lifetime:
+            try:
+                months = int(months_raw)
+            except (TypeError, ValueError):
+                return jsonify({"ok": False, "error": "Months must be a number"}), 400
+            if months < 1 or months > 120:
+                return jsonify({"ok": False, "error": "Months must be between 1 and 120"}), 400
+            new_expires = months_from_now(months).isoformat()
+        else:
+            new_expires = None
+
+        email = decrypt_str(row["email_enc"])
+        human_key = decrypt_str(row["license_key_enc"])
+        device_id = decrypt_str(row["device_id_enc"])
+        private = ensure_signing_keys()
+        payload = re_sign_for_device(email, human_key, new_expires, device_id, private)
+        conn.execute(
+            "UPDATE users SET expires_at = ?, license_payload_enc = ? WHERE id = ?",
+            (new_expires, encrypt_str(payload), uid),
+        )
+
+    log_admin("extend_license", uid, {"email": email, "expires_at": new_expires})
+    return jsonify({"ok": True, "expires_at": new_expires, "lifetime": new_expires is None})
+
+
+@app.post("/api/admin/users/<int:uid>/reissue")
+@admin_required
+def admin_users_reissue(uid: int):
+    """Generate a brand-new license key for the user, preserving expiry & device."""
+    with db() as conn:
+        row = conn.execute(
+            "SELECT email_enc, expires_at, device_id_enc, first_name_enc "
+            "FROM users WHERE id = ?",
+            (uid,),
+        ).fetchone()
+        if row is None:
+            return jsonify({"ok": False, "error": "User not found"}), 404
+        email = decrypt_str(row["email_enc"])
+        device_id = decrypt_str(row["device_id_enc"])
+        first = decrypt_str(row["first_name_enc"]) or ""
+
+        private = ensure_signing_keys()
+        new_key, new_payload = generate_license(
+            email, private, iso_to_dt(row["expires_at"]), device_id=device_id,
+        )
+        password = generate_password()
+        conn.execute(
+            """
+            UPDATE users SET license_key_hash = ?, license_key_enc = ?, license_payload_enc = ?,
+              password_hash = ?
+            WHERE id = ?
+            """,
+            (
+                license_key_hash(new_key),
+                encrypt_str(new_key),
+                encrypt_str(new_payload),
+                hash_password(password),
+                uid,
+            ),
+        )
+
+    log_admin("reissue_license", uid, {"email": email})
+    delivery = send_email(build_email(email, first, password, new_key))
+    return jsonify(
+        {
+            "ok": True,
+            "license_key": new_key,
+            "temp_password": password,
+            "email_delivery": delivery,
+        }
+    )
+
+
+@app.post("/api/admin/users/<int:uid>/resend")
+@admin_required
+def admin_users_resend(uid: int):
+    """Reset the password and email fresh credentials to the user."""
+    password = generate_password()
+    with db() as conn:
+        row = conn.execute(
+            "SELECT email_enc, first_name_enc, license_key_enc FROM users WHERE id = ?",
+            (uid,),
+        ).fetchone()
+        if row is None:
+            return jsonify({"ok": False, "error": "User not found"}), 404
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (hash_password(password), uid),
+        )
+    email = decrypt_str(row["email_enc"])
+    first = decrypt_str(row["first_name_enc"])
+    license_key = decrypt_str(row["license_key_enc"])
+
+    log_admin("resend_credentials", uid, {"email": email})
+    delivery = send_email(build_email(email, first or "", password, license_key or ""))
+
+    return jsonify(
+        {
+            "ok": True,
+            "email": email,
+            "temp_password": password,
+            "email_delivery": delivery,
+        }
+    )
+
+
+# ── admin 2FA ─────────────────────────────────────────────────────────
+
+@app.get("/api/admin/2fa/status")
+@admin_required
+def admin_2fa_status():
+    email = current_email()
+    with db() as conn:
+        row = conn.execute(
+            "SELECT totp_secret FROM users WHERE email_hash = ?", (email_hash(email),)
+        ).fetchone()
+    return jsonify({"ok": True, "enabled": bool(row and row["totp_secret"])})
+
+
+@app.post("/api/admin/2fa/setup")
+@admin_required
+def admin_2fa_setup():
+    secret = generate_totp_secret()
+    session["pending_totp"] = secret
+    session["pending_totp_email"] = current_email()
+    return jsonify(
+        {
+            "ok": True,
+            "secret": secret,
+            "otpauth_url": otpauth_uri(secret, current_email() or ""),
+        }
+    )
+
+
+@app.post("/api/admin/2fa/enable")
+@admin_required
+def admin_2fa_enable():
+    data = request.get_json(silent=True) or {}
+    code = data.get("code") or ""
+    secret = session.get("pending_totp")
+    email = current_email()
+    if not secret or not email or session.get("pending_totp_email") != email:
+        return jsonify({"ok": False, "error": "Start 2FA setup first"}), 400
+    if not totp_verify(secret, code):
+        return jsonify({"ok": False, "error": "Invalid verification code"}), 401
+    with db() as conn:
+        conn.execute(
+            "UPDATE users SET totp_secret = ? WHERE email_hash = ?",
+            (secret, email_hash(email)),
+        )
+    session.pop("pending_totp", None)
+    session.pop("pending_totp_email", None)
+    log_admin("enable_2fa", None, {"email": email})
+    return jsonify({"ok": True})
+
+
+@app.post("/api/admin/2fa/disable")
+@admin_required
+def admin_2fa_disable():
+    data = request.get_json(silent=True) or {}
+    code = data.get("code") or ""
+    email = current_email()
+    with db() as conn:
+        row = conn.execute(
+            "SELECT totp_secret FROM users WHERE email_hash = ?", (email_hash(email),)
+        ).fetchone()
+    if not row or not row["totp_secret"]:
+        return jsonify({"ok": False, "error": "2FA is not enabled"}), 400
+    if not totp_verify(row["totp_secret"], code):
+        return jsonify({"ok": False, "error": "Invalid verification code"}), 401
+    with db() as conn:
+        conn.execute(
+            "UPDATE users SET totp_secret = NULL WHERE email_hash = ?",
+            (email_hash(email),),
+        )
+    log_admin("disable_2fa", None, {"email": email})
+    return jsonify({"ok": True})
 
 
 @app.post("/api/admin/users")
@@ -875,6 +1565,8 @@ def admin_users_create():
             ),
         )
         new_id = cur.lastrowid
+    if email == GOD_EMAIL:
+        ensure_god_admin()
     log_admin("create_user", new_id, {"email": email, "license_key": license_key})
 
     delivery = None
@@ -957,6 +1649,25 @@ def admin_quick_revoke():
     return jsonify({"ok": True, "revoked": revoke, "user_id": uid, "email": email_out})
 
 
+@app.post("/api/admin/users/<int:uid>/unbind-device")
+@admin_required
+def admin_users_unbind_device(uid: int):
+    """Clear device binding so the license can be activated on another machine."""
+    with db() as conn:
+        row = conn.execute(
+            "SELECT email_enc FROM users WHERE id = ?", (uid,)
+        ).fetchone()
+        if row is None:
+            return jsonify({"ok": False, "error": "User not found"}), 404
+        conn.execute(
+            "UPDATE users SET device_id_enc = NULL, device_bound_at = NULL WHERE id = ?",
+            (uid,),
+        )
+
+    log_admin("unbind_device", uid, {"email": decrypt_str(row["email_enc"])})
+    return jsonify({"ok": True})
+
+
 @app.post("/api/admin/users/<int:uid>/reset-password")
 @admin_required
 def admin_users_reset_password(uid: int):
@@ -1024,7 +1735,7 @@ def admin_log():
             pass
         entries.append(
             {
-                "actor": r["actor_hash"][:12] + "…",
+                "actor": (detail or {}).get("actor") or (r["actor_hash"][:12] + "…"),
                 "action": r["action"],
                 "target_id": r["target_id"],
                 "detail": detail,
@@ -1047,7 +1758,8 @@ def main() -> None:
     print(f"EASYBUNDLE server → http://127.0.0.1:{port}")
     print(f"Signing keys     → {KEY_DIR}")
     print(f"God mode admin   → {GOD_EMAIL}")
-    app.run(host="127.0.0.1", port=port, debug=True)
+    debug = os.environ.get("DEBUG") in ("1", "true", "True")
+    app.run(host="127.0.0.1", port=port, debug=debug, use_reloader=False)
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@
   <main class="account-page" id="account">
     <div class="account-card" id="loginCard">
       <h1>Account</h1>
-      <p class="lede">Log in with the email and password from your free trial registration.</p>
+      <p class="lede" id="loginLede">Log in with the email and password from your free trial registration.</p>
       <form class="checkout__form" id="loginForm">
         <div class="checkout__field">
           <label for="loginEmail">Email</label>
@@ -31,7 +31,11 @@
           <label for="loginPass">Password</label>
           <input id="loginPass" name="password" type="password" autocomplete="current-password" required />
         </div>
-        <button class="checkout__submit" type="submit">Log in</button>
+        <div class="checkout__field" id="codeField" hidden>
+          <label for="loginCode">Verification code</label>
+          <input id="loginCode" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" />
+        </div>
+        <button class="checkout__submit" type="submit" id="loginBtn">Log in</button>
         <p class="checkout__status" id="loginStatus" aria-live="polite"></p>
       </form>
     </div>
@@ -62,7 +66,7 @@
         </div>
       </dl>
       <button class="checkout__submit" type="button" id="logoutBtn" style="margin-top:20px;background:#2a2a2a;color:#f5f5f5">Log out</button>
-      <a class="checkout__submit" id="adminLink" href="/admin.html" hidden style="margin-top:12px;display:block;text-align:center">God mode →</a>
+      <a class="checkout__submit admin-link" id="adminLink" href="/admin.html" hidden>God mode →</a>
     </div>
   </main>
 
@@ -91,7 +95,7 @@
             : "—";
       }
       const adminLink = document.getElementById("adminLink");
-      if (adminLink) adminLink.hidden = user.role !== "admin";
+      if (adminLink) adminLink.hidden = !user.admin && user.role !== "admin";
     }
 
     async function refresh() {
@@ -105,14 +109,20 @@
 
     document.getElementById("loginForm").addEventListener("submit", async (e) => {
       e.preventDefault();
+      const statusEl = document.getElementById("loginStatus");
+      const btn = document.getElementById("loginBtn");
+      const email = document.getElementById("loginEmail").value.trim();
+      const password = document.getElementById("loginPass").value;
+      const code = document.getElementById("loginCode").value.trim();
       statusEl.textContent = "Signing in…";
       statusEl.className = "checkout__status";
-      const body = {
-        email: document.getElementById("loginEmail").value.trim(),
-        password: document.getElementById("loginPass").value,
-      };
+      btn.disabled = true;
       try {
-        const res = await fetch("/api/login", {
+        const body = code
+          ? { email, code }
+          : { email, password };
+        const path = code ? "/api/login/2fa" : "/api/login";
+        const res = await fetch(path, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
@@ -124,10 +134,21 @@
           statusEl.className = "checkout__status is-error";
           return;
         }
+        if (data.needs_2fa) {
+          document.getElementById("codeField").hidden = false;
+          document.getElementById("loginCode").focus();
+          document.getElementById("loginLede").textContent =
+            "Enter the 6-digit code from your authenticator app.";
+          document.getElementById("loginPass").value = "";
+          statusEl.textContent = "";
+          return;
+        }
         showUser(data.user);
       } catch (err) {
         statusEl.textContent = "Server offline — run: python3 server/app.py";
         statusEl.className = "checkout__status is-error";
+      } finally {
+        btn.disabled = false;
       }
     });
 

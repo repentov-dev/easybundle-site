@@ -9,6 +9,20 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=IBM+Plex+Mono:wght@400;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
   <style>
+    .rail__langs { width: auto; }
+    .rail__langs-inner { display: flex; }
+    .rail__langs .rail__lang {
+      position: relative !important;
+      inset: auto !important;
+      pointer-events: auto !important;
+      color: var(--text-secondary) !important;
+      -webkit-text-fill-color: var(--text-secondary) !important;
+      padding: 0 10px;
+    }
+    .rail__langs .rail__lang.is-active {
+      color: var(--text-primary) !important;
+      -webkit-text-fill-color: var(--text-primary) !important;
+    }
     .admin-page { min-height: 100svh; padding: 110px 20px 80px; }
     .admin-card {
       width: min(1040px, 100%);
@@ -35,6 +49,7 @@
     }
     .badge-active { background: #123b27; color: #3ddc84; }
     .badge-revoked { background: #3b1a1a; color: #ff6b6b; }
+    .badge-expired { background: #3b2d1a; color: #ffc46b; }
     .badge-admin { background: #3b1a2b; color: var(--buy); }
     .admin-actions { display: flex; gap: 6px; flex-wrap: wrap; }
     .btn-mini {
@@ -51,6 +66,7 @@
     .log-list { font-family: var(--mono); font-size: 12px; list-style: none; margin: 0; padding: 0; max-height: 320px; overflow: auto; }
     .log-list li { padding: 6px 0; border-bottom: 1px solid var(--about-stroke); color: var(--text-secondary); }
     .log-list .t { color: var(--text-muted); }
+    .log-list .actor { color: var(--buy); }
     .create-password { margin-top: 4px; font-family: var(--mono); font-size: 12px; color: var(--text-muted); }
     .flash { font-family: var(--mono); font-size: 13px; margin-top: 12px; }
     .flash.is-ok { color: #3ddc84; }
@@ -58,6 +74,44 @@
     .checkout__submit.is-danger { background: #5a1515; border-color: #ff6b6b; color: #ffd9d9; }
     .checkout__submit.is-danger:hover { background: #7a1d1d; }
     .checkout__submit:disabled { opacity: 0.5; cursor: not-allowed; }
+    .stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin: 16px 0 4px; }
+    @media (max-width: 720px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+    .stat {
+      background: #161616; border: 1px solid var(--about-stroke); border-radius: var(--chrome-corner);
+      padding: 12px 14px;
+    }
+    .stat b { display: block; font-family: var(--mono); font-size: 22px; line-height: 1.1; }
+    .stat span { display: block; color: var(--text-muted); font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; }
+    .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .toolbar input {
+      flex: 1; min-width: 220px; height: 34px; background: #161616; color: var(--text-primary);
+      border: 1px solid var(--about-stroke); border-radius: 999px; padding: 0 14px;
+      font-family: var(--mono); font-size: 12px;
+    }
+    .toolbar input:focus { outline: none; border-color: var(--text-secondary); }
+    .pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; font-family: var(--mono); font-size: 12px; color: var(--text-muted); flex-wrap: wrap; }
+    .pager button { min-width: 34px; height: 30px; border-radius: 999px; border: 1px solid var(--about-stroke); background: #1b1b1b; color: var(--text-primary); cursor: pointer; font-family: var(--mono); font-size: 12px; }
+    .pager button:disabled { opacity: 0.35; cursor: not-allowed; }
+    .copy-link { cursor: pointer; border-bottom: 1px dotted var(--text-secondary); }
+    .secret-box {
+      font-family: var(--mono); font-size: 13px; word-break: break-all; background: #161616;
+      border: 1px solid var(--about-stroke); border-radius: var(--chrome-corner); padding: 12px; margin: 8px 0;
+    }
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.72); display: none;
+      align-items: center; justify-content: center; padding: 20px; z-index: 50;
+    }
+    .modal-overlay.is-open { display: flex; }
+    .modal {
+      width: min(480px, 100%); max-height: 86svh; overflow: auto;
+      background: var(--about-card); border: 1px solid var(--about-stroke);
+      border-radius: var(--chrome-corner); padding: 22px;
+    }
+    .modal h3 { font-family: var(--display); font-size: 1.1rem; margin: 0 0 14px; }
+    .modal .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; flex-wrap: wrap; }
+    .modal .modal-actions .checkout__submit { width: auto; padding: 0 18px; }
+    .modal-row { font-family: var(--mono); font-size: 12px; color: var(--text-secondary); margin: 6px 0; }
+    .modal-row b { color: var(--text-primary); }
   </style>
 </head>
 <body>
@@ -65,92 +119,397 @@
     <div class="rail__inner">
       <a href="/">EASYBUNDLE</a>
       <span class="rail__divider"></span>
-      <a href="/account.html">Account</a>
+      <a href="/account.html" data-i18n="nav.account">Account</a>
       <span class="rail__divider"></span>
-      <a href="#" id="navLogout">Log out</a>
+      <a href="#" id="navLogout" data-i18n="nav.logout">Log out</a>
+    </div>
+    <div class="rail__langs" aria-label="Language">
+      <div class="rail__langs-inner">
+        <button class="rail__lang is-active" type="button" data-lang="en">EN</button>
+        <button class="rail__lang" type="button" data-lang="ru">RU</button>
+      </div>
     </div>
   </nav>
 
   <main class="admin-page" id="admin">
     <div class="admin-card">
-      <h1>God mode</h1>
+      <h1 data-i18n="god.title">God mode</h1>
       <p class="lede" id="adminWho"></p>
-      <div class="admin-grid">
+      <div class="stats" id="statsRow">
+        <div class="stat"><b id="stTotal">…</b><span data-i18n="stat.total">Total</span></div>
+        <div class="stat"><b id="stActive">…</b><span data-i18n="stat.active">Active</span></div>
+        <div class="stat"><b id="stExp30">…</b><span data-i18n="stat.exp30">Expire in 30d</span></div>
+        <div class="stat"><b id="stExpired">…</b><span data-i18n="stat.expired">Expired</span></div>
+        <div class="stat"><b id="stRevoked">…</b><span data-i18n="stat.revoked">Revoked</span></div>
+        <div class="stat"><b id="stAdmins">…</b><span data-i18n="stat.admins">Admins</span></div>
+      </div>
+      <div class="admin-grid" style="margin-top:20px">
         <section>
-          <h2>Create license</h2>
+          <h2 data-i18n="create.title">Create license</h2>
           <form class="checkout__form" id="createForm">
             <div class="checkout__field">
-              <label for="cEmail">Email</label>
+              <label for="cEmail" data-i18n="f.email">Email</label>
               <input id="cEmail" name="email" type="email" autocomplete="off" required />
             </div>
             <div class="checkout__field">
-              <label for="cFirst">First name</label>
+              <label for="cFirst" data-i18n="f.first">First name</label>
               <input id="cFirst" name="first_name" type="text" autocomplete="off" required />
             </div>
             <div class="checkout__field">
-              <label for="cLast">Last name</label>
+              <label for="cLast" data-i18n="f.last">Last name</label>
               <input id="cLast" name="last_name" type="text" autocomplete="off" required />
             </div>
             <div class="checkout__field">
-              <label for="cCountry">Country</label>
+              <label for="cCountry" data-i18n="f.country">Country</label>
               <input id="cCountry" name="country" type="text" autocomplete="off" placeholder="RU" required />
             </div>
             <div class="checkout__field">
-              <label for="cPassword">Password <span style="color:var(--text-muted)">(blank = auto-generate)</span></label>
+              <label for="cPassword"><span data-i18n="f.password">Password</span> <span style="color:var(--text-muted)" data-i18n="f.passwordHint">(blank = auto-generate)</span></label>
               <input id="cPassword" name="password" type="text" autocomplete="off" />
             </div>
             <div class="checkout__field">
-              <label for="cMonths">License duration <span style="color:var(--text-muted)">(months; 0 = lifetime)</span></label>
+              <label for="cMonths"><span data-i18n="f.duration">License duration</span> <span style="color:var(--text-muted)" data-i18n="f.durationHint">(months; 0 = lifetime)</span></label>
               <input id="cMonths" name="months" type="number" min="0" max="120" value="3" />
-            </div>            <label class="checkout__check">
-              <input type="checkbox" id="cSend" checked /> Email the password &amp; key
+            </div>
+            <label class="checkout__check">
+              <input type="checkbox" id="cSend" checked /> <span data-i18n="create.send">Email the password &amp; key</span>
             </label>
-            <button class="checkout__submit" type="submit">Create user + license</button>
+            <button class="checkout__submit" type="submit" data-i18n="create.submit">Create user + license</button>
             <p class="flash" id="createFlash" aria-live="polite"></p>
           </form>
         </section>
         <section>
-          <h2>Audit log</h2>
-          <ul class="log-list" id="adminLog"><li style="color:var(--text-muted)">Loading…</li></ul>
+          <h2 data-i18n="tfa.title">Two-factor auth</h2>
+          <p class="lede" data-i18n="tfa.lede">Protect the god account with a TOTP authenticator app.</p>
+          <div id="tfaPanel">
+            <p class="flash" id="tfaStatus" data-i18n="loading">Loading…</p>
+          </div>
+          <h2 style="margin-top:24px" data-i18n="log.title">Audit log</h2>
+          <ul class="log-list" id="adminLog"><li style="color:var(--text-muted)" data-i18n="loading">Loading…</li></ul>
         </section>
       </div>
     </div>
 
     <div class="admin-card" id="quickRevokeCard">
-      <h2>Quick revoke / restore</h2>
-      <p class="lede">Revoke or restore a license by email or license key — no need to open the table.</p>
+      <h2 data-i18n="quick.title">Quick revoke / restore</h2>
+      <p class="lede" data-i18n="quick.lede">Revoke or restore a license by email or license key — no need to open the table.</p>
       <form class="checkout__form" id="revokeForm" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end">
         <div class="checkout__field" style="flex:1; min-width:220px">
-          <label for="rQuery">Email or license key</label>
+          <label for="rQuery" data-i18n="quick.label">Email or license key</label>
           <input id="rQuery" name="query" type="text" autocomplete="off" placeholder="i@am.god or EB-52A9-…" required />
         </div>
-        <button class="checkout__submit is-danger" type="submit" data-act="revoke" style="min-width:120px">Revoke</button>
-        <button class="checkout__submit" type="submit" data-act="restore" style="min-width:120px">Restore</button>
+        <button class="checkout__submit is-danger" type="submit" data-act="revoke" style="min-width:120px" data-i18n="quick.revoke">Revoke</button>
+        <button class="checkout__submit" type="submit" data-act="restore" style="min-width:120px" data-i18n="quick.restore">Restore</button>
         <p class="flash" id="revokeFlash" aria-live="polite"></p>
       </form>
     </div>
 
     <div class="admin-card">
-      <h2>Users &amp; licenses</h2>
+      <h2 data-i18n="users.title">Users &amp; licenses</h2>
+      <div class="toolbar">
+        <input id="searchBox" type="search" data-i18n-ph="users.search" placeholder="Search id / email / name / key…" autocomplete="off" />
+        <a class="btn-mini" id="csvBtn" href="/api/admin/users/export.csv" style="text-decoration:none;line-height:34px;padding:0 14px;font-size:12px" data-i18n="users.export">Export CSV</a>
+      </div>
       <div style="overflow-x:auto">
         <table class="admin-table">
           <thead>
             <tr>
-              <th>ID</th><th>Email</th><th>Name</th><th>Country</th><th>License key</th>
-              <th>Time left</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th>
+              <th>ID</th><th data-i18n="th.email">Email</th><th data-i18n="th.name">Name</th><th data-i18n="th.country">Country</th><th data-i18n="th.key">License key</th>
+              <th data-i18n="th.timeleft">Time left</th><th data-i18n="th.device">Device</th><th data-i18n="th.role">Role</th><th data-i18n="th.status">Status</th><th data-i18n="th.created">Created</th><th data-i18n="th.actions">Actions</th>
             </tr>
           </thead>
-          <tbody id="usersBody"><tr><td colspan="9" style="color:var(--text-muted)">Loading…</td></tr></tbody>
+          <tbody id="usersBody"><tr><td colspan="11" style="color:var(--text-muted)" data-i18n="loading">Loading…</td></tr></tbody>
         </table>
+      </div>
+      <div class="pager">
+        <span id="pageInfo">—</span>
+        <span style="display:flex;gap:6px">
+          <button id="pagePrev" disabled>‹</button>
+          <button id="pageNext" disabled>›</button>
+        </span>
       </div>
     </div>
   </main>
 
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal" role="dialog" aria-modal="true" id="modalBox">
+      <h3 id="modalTitle"></h3>
+      <div id="modalBody"></div>
+      <div class="modal-actions" id="modalActions"></div>
+    </div>
+  </div>
+
   <script>
+    const I18N = {
+      en: {
+        "nav.account": "Account",
+        "nav.logout": "Log out",
+        "god.title": "God mode",
+        "stat.total": "Total",
+        "stat.active": "Active",
+        "stat.exp30": "Expire in 30d",
+        "stat.expired": "Expired",
+        "stat.revoked": "Revoked",
+        "stat.admins": "Admins",
+        "create.title": "Create license",
+        "f.email": "Email",
+        "f.first": "First name",
+        "f.last": "Last name",
+        "f.country": "Country",
+        "f.password": "Password",
+        "f.passwordHint": "(blank = auto-generate)",
+        "f.duration": "License duration",
+        "f.durationHint": "(months; 0 = lifetime)",
+        "create.send": "Email the password & key",
+        "create.submit": "Create user + license",
+        "tfa.title": "Two-factor auth",
+        "tfa.lede": "Protect the god account with a TOTP authenticator app.",
+        "log.title": "Audit log",
+        "quick.title": "Quick revoke / restore",
+        "quick.lede": "Revoke or restore a license by email or license key — no need to open the table.",
+        "quick.label": "Email or license key",
+        "quick.revoke": "Revoke",
+        "quick.restore": "Restore",
+        "users.title": "Users & licenses",
+        "users.search": "Search id / email / name / key…",
+        "users.export": "Export CSV",
+        "th.email": "Email", "th.name": "Name", "th.country": "Country", "th.key": "License key",
+        "th.timeleft": "Time left", "th.device": "Device", "th.role": "Role", "th.status": "Status",
+        "th.created": "Created", "th.actions": "Actions",
+        "loading": "Loading…",
+        "who": "Signed in as {email} — role {role}",
+        "badge.admin": "admin",
+        "badge.revoked": "revoked",
+        "badge.expired": "expired",
+        "badge.active": "active",
+        "time.lifetime": "lifetime",
+        "time.expired": "expired",
+        "time.mo": "{m} mo {d} d",
+        "time.days": "{d} d",
+        "page": "Page {page} / {pages} · {total} user{s}",
+        "noLog": "No activity yet.",
+        "act.restore": "Restore",
+        "act.revoke": "Revoke",
+        "act.edit": "Edit",
+        "act.extend": "Extend",
+        "act.resend": "Resend",
+        "act.reissue": "Reissue",
+        "act.reset": "Reset pw",
+        "act.unbind": "Unbind",
+        "act.delete": "Delete",
+        "copy.title": "Copy key",
+        "modal.copy": "Copy",
+        "modal.close": "Close",
+        "modal.confirm": "Confirm",
+        "modal.cancel": "Cancel",
+        "copied": "Copied to clipboard",
+        "sec.title": "Temporary credentials",
+        "sec.pw": "New password for {email}:",
+        "sec.emailed": "Emailed to {email}{method}",
+        "reissue.title": "License reissued",
+        "reissue.key": "New key for {email}:",
+        "reissue.note": "New password {pw} · emailed{method}",
+        "edit.title": "Edit user",
+        "f.company": "Company",
+        "f.vat": "VAT / Tax ID",
+        "edit.save": "Save",
+        "extend.title": "Extend license",
+        "extend.desc": "Set a new expiry — re-signs the payload and preserves the device binding.",
+        "extend.months": "Months from now (1–120)",
+        "extend.lifetime": "Lifetime (no expiry)",
+        "extend.submit": "Extend",
+        "unbind.title": "Unbind device",
+        "unbind.desc": "Unbind this license from its current device? The user can then activate it on a new machine.",
+        "delete.title": "Delete user",
+        "delete.desc": "Delete this user and their license? This cannot be undone.",
+        "created.title": "License created",
+        "created.tmp": "Temp password: {pw}",
+        "created.key": "Key: {key}",
+        "flash.revoked": "Revoked {email} (#{id})",
+        "flash.restored": "Restored {email} (#{id})",
+        "req.failed": "Request failed",
+        "create.failed": "Create failed",
+        "save.failed": "Save failed",
+        "extend.failed": "Extend failed",
+        "failed": "Failed",
+        "tfa.err": "Could not load 2FA status.",
+        "tfa.enabled": "2FA is enabled.",
+        "tfa.disable": "Disable 2FA",
+        "tfa.disableTitle": "Disable 2FA",
+        "tfa.code": "Current verification code",
+        "tfa.code6": "6-digit code",
+        "tfa.off": "2FA is OFF.",
+        "tfa.setup": "Set up 2FA",
+        "tfa.setupTitle": "Set up 2FA",
+        "tfa.s1": "1. Open your authenticator app.",
+        "tfa.s2": "2. Add this account (scan the otpauth URL with your app, or type the secret):",
+        "tfa.s3": "3. Enter a code from the app to confirm.",
+        "tfa.verify": "Verification code",
+        "tfa.enable": "Enable 2FA",
+        "dis": "Disable",
+      },
+      ru: {
+        "nav.account": "Аккаунт",
+        "nav.logout": "Выйти",
+        "god.title": "Режим Бога",
+        "stat.total": "Всего",
+        "stat.active": "Активные",
+        "stat.exp30": "Истекают через 30 д",
+        "stat.expired": "Истекли",
+        "stat.revoked": "Отозваны",
+        "stat.admins": "Админы",
+        "create.title": "Создать лицензию",
+        "f.email": "Email",
+        "f.first": "Имя",
+        "f.last": "Фамилия",
+        "f.country": "Страна",
+        "f.password": "Пароль",
+        "f.passwordHint": "(пусто = сгенерировать)",
+        "f.duration": "Срок лицензии",
+        "f.durationHint": "(месяцы; 0 = навсегда)",
+        "create.send": "Отправить пароль и ключ на почту",
+        "create.submit": "Создать пользователя + лицензию",
+        "tfa.title": "Двухфакторная аутентификация",
+        "tfa.lede": "Защитите аккаунт Бога приложением-аутентификатором TOTP.",
+        "log.title": "Журнал действий",
+        "quick.title": "Быстрый отзыв / восстановление",
+        "quick.lede": "Отозвать или восстановить лицензию по email или ключу — без открытия таблицы.",
+        "quick.label": "Email или ключ лицензии",
+        "quick.revoke": "Отозвать",
+        "quick.restore": "Восстановить",
+        "users.title": "Пользователи и лицензии",
+        "users.search": "Поиск id / email / имени / ключа…",
+        "users.export": "Экспорт CSV",
+        "th.email": "Email", "th.name": "Имя", "th.country": "Страна", "th.key": "Ключ лицензии",
+        "th.timeleft": "Осталось", "th.device": "Устройство", "th.role": "Роль", "th.status": "Статус",
+        "th.created": "Создан", "th.actions": "Действия",
+        "loading": "Загрузка…",
+        "who": "Вошли как {email} — роль {role}",
+        "badge.admin": "админ",
+        "badge.revoked": "отозвана",
+        "badge.expired": "истекла",
+        "badge.active": "активна",
+        "time.lifetime": "навсегда",
+        "time.expired": "истекла",
+        "time.mo": "{m} мес {d} д",
+        "time.days": "{d} д",
+        "page": "Стр. {page} / {pages} · {total} польз.{s}",
+        "noLog": "Активности пока нет.",
+        "act.restore": "Восст.",
+        "act.revoke": "Отозвать",
+        "act.edit": "Изменить",
+        "act.extend": "Продлить",
+        "act.resend": "Переслать",
+        "act.reissue": "Перевыпуск",
+        "act.reset": "Сброс пароля",
+        "act.unbind": "Отвязать",
+        "act.delete": "Удалить",
+        "copy.title": "Копировать ключ",
+        "modal.copy": "Копировать",
+        "modal.close": "Закрыть",
+        "modal.confirm": "Подтвердить",
+        "modal.cancel": "Отмена",
+        "copied": "Скопировано в буфер",
+        "sec.title": "Временные данные",
+        "sec.pw": "Новый пароль для {email}:",
+        "sec.emailed": "Отправлено на {email}{method}",
+        "reissue.title": "Лицензия перевыпущена",
+        "reissue.key": "Новый ключ для {email}:",
+        "reissue.note": "Новый пароль {pw} · отправлен{method}",
+        "edit.title": "Изменить пользователя",
+        "f.company": "Компания",
+        "f.vat": "VAT / Tax ID",
+        "edit.save": "Сохранить",
+        "extend.title": "Продлить лицензию",
+        "extend.desc": "Установить новый срок — подпись пересоздаётся, привязка устройства сохраняется.",
+        "extend.months": "Месяцев от текущей даты (1–120)",
+        "extend.lifetime": "Навсегда (без срока)",
+        "extend.submit": "Продлить",
+        "unbind.title": "Отвязать устройство",
+        "unbind.desc": "Отвязать лицензию от текущего устройства? Пользователь сможет активировать её на новой машине.",
+        "delete.title": "Удалить пользователя",
+        "delete.desc": "Удалить пользователя и его лицензию? Это действие необратимо.",
+        "created.title": "Лицензия создана",
+        "created.tmp": "Временный пароль: {pw}",
+        "created.key": "Ключ: {key}",
+        "flash.revoked": "Отозвана {email} (#{id})",
+        "flash.restored": "Восстановлена {email} (#{id})",
+        "req.failed": "Ошибка запроса",
+        "create.failed": "Не удалось создать",
+        "save.failed": "Не удалось сохранить",
+        "extend.failed": "Не удалось продлить",
+        "failed": "Ошибка",
+        "tfa.err": "Не удалось загрузить статус 2FA.",
+        "tfa.enabled": "2FA включена.",
+        "tfa.disable": "Отключить 2FA",
+        "tfa.disableTitle": "Отключить 2FA",
+        "tfa.code": "Текущий код подтверждения",
+        "tfa.code6": "6-значный код",
+        "tfa.off": "2FA ВЫКЛ.",
+        "tfa.setup": "Настроить 2FA",
+        "tfa.setupTitle": "Настройка 2FA",
+        "tfa.s1": "1. Откройте приложение-аутентификатор.",
+        "tfa.s2": "2. Добавьте этот аккаунт (отсканируйте otpauth-URL или введите секрет):",
+        "tfa.s3": "3. Введите код из приложения для подтверждения.",
+        "tfa.verify": "Код подтверждения",
+        "tfa.enable": "Включить 2FA",
+        "dis": "Отключить",
+      },
+    };
+
+    let currentLang = "en";
+
+    function t(key, vars) {
+      let s = (I18N[currentLang] && I18N[currentLang][key]) || I18N.en[key] || key;
+      if (vars) for (const k in vars) s = s.replace(new RegExp("\\{" + k + "\\}", "g"), vars[k]);
+      return s;
+    }
+
+    function applyI18n() {
+      document.querySelectorAll("[data-i18n]").forEach((el) => {
+        const key = el.getAttribute("data-i18n");
+        if (I18N[currentLang][key] !== undefined) el.textContent = I18N[currentLang][key];
+      });
+      document.querySelectorAll("[data-i18n-ph]").forEach((el) => {
+        const key = el.getAttribute("data-i18n-ph");
+        if (I18N[currentLang][key] !== undefined) el.placeholder = I18N[currentLang][key];
+      });
+      document.querySelectorAll(".rail__lang").forEach((btn) => {
+        btn.classList.toggle("is-active", btn.dataset.lang === currentLang);
+      });
+      document.title = currentLang === "ru" ? "Админ — EASYBUNDLE" : "Admin — EASYBUNDLE";
+      if (adminWho) {
+        const who = adminWho.dataset.who;
+        if (who) adminWho.textContent = who;
+      }
+      if (tbody && typeof loadUsers === "function") { loadUsers(); loadLog(); loadStats(); loadTfa(); }
+    }
+
+    function setLang(lang) {
+      if (!I18N[lang]) return;
+      currentLang = lang;
+      try { localStorage.setItem("easybundle-lang", lang); } catch (_) {}
+      applyI18n();
+    }
+
     const tbody = document.getElementById("usersBody");
+    const adminWho = document.getElementById("adminWho");
     const createForm = document.getElementById("createForm");
     const createFlash = document.getElementById("createFlash");
     const adminLog = document.getElementById("adminLog");
+    const searchBox = document.getElementById("searchBox");
+    const pageInfo = document.getElementById("pageInfo");
+    const pagePrev = document.getElementById("pagePrev");
+    const pageNext = document.getElementById("pageNext");
+
+    document.querySelectorAll(".rail__lang").forEach((btn) => {
+      btn.addEventListener("click", () => setLang(btn.dataset.lang));
+    });
+
+    let page = 1;
+    let total = 0;
+    let pages = 1;
+    const PER = 25;
 
     function esc(s) {
       return String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -175,41 +534,63 @@
 
     function statusBadge(u) {
       const badges = [];
-      if (u.role === "admin") badges.push('<span class="badge badge-admin">admin</span>');
-      badges.push(u.revoked
-        ? '<span class="badge badge-revoked">revoked</span>'
-        : '<span class="badge badge-active">active</span>');
+      if (u.role === "admin") badges.push(`<span class="badge badge-admin">${t("badge.admin")}</span>`);
+      if (u.revoked) badges.push(`<span class="badge badge-revoked">${t("badge.revoked")}</span>`);
+      else if (!u.lifetime && u.expires_ms && u.expires_ms <= Date.now())
+        badges.push(`<span class="badge badge-expired">${t("badge.expired")}</span>`);
+      else badges.push(`<span class="badge badge-active">${t("badge.active")}</span>`);
       return badges.join(" ");
     }
 
     function timeLeft(u) {
-      if (u.lifetime) return '<span style="color:var(--text-muted)">lifetime</span>';
+      if (u.lifetime) return `<span style="color:var(--text-muted)">${t("time.lifetime")}</span>`;
       if (u.expires_at && u.expires_ms) {
         const now = Date.now();
         const diff = u.expires_ms - now;
-        if (diff <= 0) return '<span style="color:#ff6b6b;font-weight:700">expired</span>';
+        if (diff <= 0) return `<span style="color:#ff6b6b;font-weight:700">${t("time.expired")}</span>`;
         const days = Math.ceil(diff / 86400000);
         return days >= 90
-          ? `${Math.floor(days / 30)} mo ${days % 30} d`
-          : `${days} d`;
+          ? t("time.mo", { m: Math.floor(days / 30), d: days % 30 })
+          : t("time.days", { d: days });
       }
       return "—";
+    }
+
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (_) {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        return ok;
+      }
     }
 
     function actionsCell(u) {
       if (u.role === "admin") return '<span style="color:var(--text-muted)">—</span>';
       const revoke = u.revoked
-        ? `<button class="btn-mini" data-action="restore" data-id="${u.id}">Restore</button>`
-        : `<button class="btn-mini" data-action="revoke" data-id="${u.id}">Revoke</button>`;
+        ? `<button class="btn-mini" data-action="restore" data-id="${u.id}">${t("act.restore")}</button>`
+        : `<button class="btn-mini" data-action="revoke" data-id="${u.id}">${t("act.revoke")}</button>`;
       return `<div class="admin-actions">
         ${revoke}
-        <button class="btn-mini" data-action="reset" data-id="${u.id}">Reset pw</button>
-        <button class="btn-mini is-danger" data-action="delete" data-id="${u.id}">Delete</button>
+        <button class="btn-mini" data-action="edit" data-id="${u.id}">${t("act.edit")}</button>
+        <button class="btn-mini" data-action="extend" data-id="${u.id}">${t("act.extend")}</button>
+        <button class="btn-mini" data-action="resend" data-id="${u.id}">${t("act.resend")}</button>
+        <button class="btn-mini" data-action="reissue" data-id="${u.id}">${t("act.reissue")}</button>
+        <button class="btn-mini" data-action="reset" data-id="${u.id}">${t("act.reset")}</button>
+        <button class="btn-mini" data-action="unbind" data-id="${u.id}" ${u.device_id ? "" : "disabled"}>${t("act.unbind")}</button>
+        <button class="btn-mini is-danger" data-action="delete" data-id="${u.id}">${t("act.delete")}</button>
       </div>`;
     }
 
     async function loadUsers() {
-      const { data } = await api("/api/admin/users");
+      const q = searchBox.value.trim();
+      const { data } = await api(`/api/admin/users?q=${encodeURIComponent(q)}&page=${page}&per_page=${PER}`);
       if (!data.ok) return;
       tbody.innerHTML = data.users.map((u) => {
         const rowCls = u.revoked ? "is-revoked" : "";
@@ -219,14 +600,21 @@
           <td>${esc(u.email)}</td>
           <td>${name || "—"}</td>
           <td>${esc(u.country) || "—"}</td>
-          <td>${esc(u.license_key) || "—"}</td>
+          <td><span class="copy-link" data-copy="${esc(u.license_key)}" title="${esc(t("copy.title"))}">${esc(u.license_key) || "—"}</span></td>
           <td>${timeLeft(u)}</td>
+          <td>${u.device_id ? `<span style="color:var(--text-muted)" title="${esc(u.device_bound_at) || ""}">${esc(u.device_id.slice(0, 12))}…</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
           <td class="${u.role === "admin" ? "role-admin" : ""}">${u.role}</td>
           <td>${statusBadge(u)}</td>
           <td>${u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}</td>
           <td>${actionsCell(u)}</td>
         </tr>`;
       }).join("");
+      total = data.total;
+      pages = data.pages;
+      page = data.page;
+      pageInfo.textContent = t("page", { page, pages, total, s: total === 1 ? "" : "s" });
+      pagePrev.disabled = page <= 1;
+      pageNext.disabled = page >= pages;
     }
 
     async function loadLog() {
@@ -236,37 +624,180 @@
         ? data.entries.map((e) => {
             const who = e.detail && e.detail.email ? e.detail.email : `#${e.target_id ?? "?"}`;
             const act = e.action.replace(/_/g, " ");
-            return `<li><span class="t">${new Date(e.created_at).toLocaleString()}</span> — ${act} ${esc(who)}</li>`;
+            return `<li><span class="t">${new Date(e.created_at).toLocaleString()}</span> — <span class="actor">${esc(e.actor)}</span> — ${act} ${esc(who)}</li>`;
           }).join("")
-        : '<li style="color:var(--text-muted)">No activity yet.</li>';
+        : `<li style="color:var(--text-muted)">${t("noLog")}</li>`;
+    }
+
+    async function loadStats() {
+      const { data } = await api("/api/admin/stats");
+      if (!data.ok) return;
+      const s = data.stats;
+      document.getElementById("stTotal").textContent = s.total;
+      document.getElementById("stActive").textContent = s.active;
+      document.getElementById("stExp30").textContent = s.expiring_30;
+      document.getElementById("stExpired").textContent = s.expired;
+      document.getElementById("stRevoked").textContent = s.revoked;
+      document.getElementById("stAdmins").textContent = s.admins;
+    }
+
+    function modal(title, bodyHtml, actionsHtml) {
+      document.getElementById("modalTitle").textContent = title;
+      document.getElementById("modalBody").innerHTML = bodyHtml;
+      document.getElementById("modalActions").innerHTML = actionsHtml;
+      document.getElementById("modalOverlay").classList.add("is-open");
+    }
+
+    function closeModal() {
+      document.getElementById("modalOverlay").classList.remove("is-open");
+      document.getElementById("modalBody").innerHTML = "";
+      document.getElementById("modalActions").innerHTML = "";
+    }
+
+    document.getElementById("modalOverlay").addEventListener("click", (e) => {
+      if (e.target === e.currentTarget) closeModal();
+    });
+
+    function showSecretModal(title, rows) {
+      const body = rows.map((r) => `<div class="modal-row">${r}</div>`).join("");
+      const actions = `<button class="checkout__submit" type="button" data-m="copy">${t("modal.copy")}</button>
+        <button class="checkout__submit" type="button" data-m="close" style="background:#2a2a2a;color:#f5f5f5">${t("modal.close")}</button>`;
+      modal(title, body, actions);
+      let payload = "";
+      document.getElementById("modalActions").querySelector("[data-m=copy]").addEventListener("click", async () => {
+        if (await copyText(payload)) flash(document.getElementById("modalBody"), t("copied"), true);
+      });
+      return { setText: (txt) => { payload = txt; }, body };
+    }
+
+    function confirmModal(title, message, onOk) {
+      modal(
+        title,
+        `<p style="font-family:var(--mono);font-size:13px;color:var(--text-secondary)">${esc(message)}</p>`,
+        `<button class="checkout__submit is-danger" type="button" data-m="ok">${t("modal.confirm")}</button>
+         <button class="checkout__submit" type="button" data-m="cancel" style="background:#2a2a2a;color:#f5f5f5">${t("modal.cancel")}</button>`
+      );
+      document.getElementById("modalActions").querySelector("[data-m=ok]").addEventListener("click", async () => {
+        closeModal();
+        await onOk();
+      });
+      document.getElementById("modalActions").querySelector("[data-m=cancel]").addEventListener("click", closeModal);
     }
 
     tbody.addEventListener("click", async (e) => {
+      const copy = e.target.closest("[data-copy]");
+      if (copy) {
+        await copyText(copy.dataset.copy);
+        return;
+      }
       const btn = e.target.closest("button[data-action]");
       if (!btn) return;
       btn.disabled = true;
       const id = btn.dataset.id;
       const action = btn.dataset.action;
-      let r;
+      const run = async (r) => {
+        if (r.data.ok) { await loadUsers(); await loadLog(); }
+      };
       try {
         if (action === "revoke" || action === "restore") {
-          r = await api(`/api/admin/users/${id}/revoke`, {
+          const r = await api(`/api/admin/users/${id}/revoke`, {
             method: "POST",
             body: JSON.stringify({ revoke: action === "revoke" }),
           });
-        } else if (action === "reset") {
-          r = await api(`/api/admin/users/${id}/reset-password`, { method: "POST" });
-          const p = r.data.temp_password;
-          prompt("Temporary password:", p || "");
+          if (!r.data.ok) alert(r.data.error || t("req.failed"));
+          await run(r);
+        } else if (action === "reset" || action === "resend") {
+          const r = await api(`/api/admin/users/${id}/${action === "reset" ? "reset-password" : "resend"}`, { method: "POST" });
+          if (!r.data.ok) { alert(r.data.error || t("req.failed")); }
+          else {
+            const m = showSecretModal(t("sec.title"),
+              `<p>${t("sec.pw", { email: `<b style="color:var(--text-primary)">${esc(r.data.email)}</b>` })}</p>
+               <div class="secret-box" id="secVal">${esc(r.data.temp_password || "")}</div>
+               <p class="flash is-ok">${t("sec.emailed", { email: esc(r.data.email), method: r.data.email_delivery && r.data.email_delivery.method ? " (" + r.data.email_delivery.method + ")" : "" })}</p>`);
+            m.setText(r.data.temp_password || "");
+          }
+          await run(r);
+        } else if (action === "reissue") {
+          const r = await api(`/api/admin/users/${id}/reissue`, { method: "POST" });
+          if (!r.data.ok) { alert(r.data.error || t("req.failed")); }
+          else {
+            const m = showSecretModal(t("reissue.title"),
+              `<p>${t("reissue.key", { email: `<b style="color:var(--text-primary)">${esc(r.data.email)}</b>` })}</p>
+               <div class="secret-box" id="secVal">${esc(r.data.license_key)}</div>
+               <p class="flash is-ok">${t("reissue.note", { pw: esc(r.data.temp_password), method: r.data.email_delivery && r.data.email_delivery.method ? " (" + r.data.email_delivery.method + ")" : "" })}</p>`);
+            m.setText(r.data.license_key);
+          }
+          await run(r);
+        } else if (action === "edit") {
+          await openEdit(id);
+        } else if (action === "extend") {
+          await openExtend(id);
+        } else if (action === "unbind") {
+          confirmModal(t("unbind.title"), t("unbind.desc"), async () => {
+            const r = await api(`/api/admin/users/${id}/unbind-device`, { method: "POST" });
+            if (!r.data.ok) alert(r.data.error || t("req.failed"));
+            await run(r);
+          });
         } else if (action === "delete") {
-          if (!confirm("Delete this user and their license? This cannot be undone.")) { btn.disabled = false; return; }
-          r = await api(`/api/admin/users/${id}`, { method: "DELETE" });
+          confirmModal(t("delete.title"), t("delete.desc"), async () => {
+            const r = await api(`/api/admin/users/${id}`, { method: "DELETE" });
+            if (!r.data.ok) alert(r.data.error || t("req.failed"));
+            await run(r);
+          });
         }
-        if (r.data.ok) { await loadUsers(); await loadLog(); }
       } catch (err) {
-        alert("Request failed");
+        alert(t("req.failed"));
+      } finally {
+        btn.disabled = false;
       }
     });
+
+    async function openEdit(id) {
+      const { data } = await api("/api/admin/users?q=" + id + "&per_page=1");
+      const u = data.users && data.users.find((x) => x.id === id);
+      if (!u) return;
+      modal(t("edit.title"), `
+        <div class="checkout__field"><label>${t("f.first")}</label>
+          <input class="ed" data-f="first_name" type="text" value="${esc(u.first_name || "")}" /></div>
+        <div class="checkout__field"><label>${t("f.last")}</label>
+          <input class="ed" data-f="last_name" type="text" value="${esc(u.last_name || "")}" /></div>
+        <div class="checkout__field"><label>${t("f.company")}</label>
+          <input class="ed" data-f="company" type="text" value="${esc(u.company || "")}" /></div>
+        <div class="checkout__field"><label>${t("f.country")}</label>
+          <input class="ed" data-f="country" type="text" value="${esc(u.country || "")}" /></div>
+        <div class="checkout__field"><label>${t("f.vat")}</label>
+          <input class="ed" data-f="vat" type="text" value="${esc(u.vat || "")}" /></div>
+      `, `<button class="checkout__submit" type="button" data-m="save">${t("edit.save")}</button>
+        <button class="checkout__submit" type="button" data-m="cancel" style="background:#2a2a2a;color:#f5f5f5">${t("modal.cancel")}</button>`);
+      document.getElementById("modalActions").querySelector("[data-m=cancel]").addEventListener("click", closeModal);
+      document.getElementById("modalActions").querySelector("[data-m=save]").addEventListener("click", async () => {
+        const body = {};
+        document.querySelectorAll(".ed").forEach((inp) => { body[inp.dataset.f] = inp.value.trim(); });
+        const r = await api(`/api/admin/users/${id}/update`, { method: "POST", body: JSON.stringify(body) });
+        if (!r.data.ok) { alert(r.data.error || t("save.failed")); return; }
+        closeModal();
+        await loadUsers(); await loadLog();
+      });
+    }
+
+    async function openExtend(id) {
+      modal(t("extend.title"),
+        `<p style="font-family:var(--mono);font-size:13px;color:var(--text-secondary)">${t("extend.desc")}</p>
+         <div class="checkout__field"><label>${t("extend.months")}</label>
+           <input id="exMonths" type="number" min="1" max="120" value="12" /></div>
+         <label class="checkout__check"><input type="checkbox" id="exLife" /> ${t("extend.lifetime")}</label>
+       `, `<button class="checkout__submit" type="button" data-m="save">${t("extend.submit")}</button>
+        <button class="checkout__submit" type="button" data-m="cancel" style="background:#2a2a2a;color:#f5f5f5">${t("modal.cancel")}</button>`);
+      document.getElementById("modalActions").querySelector("[data-m=cancel]").addEventListener("click", closeModal);
+      document.getElementById("modalActions").querySelector("[data-m=save]").addEventListener("click", async () => {
+        const body = { lifetime: document.getElementById("exLife").checked };
+        if (!body.lifetime) body.months = document.getElementById("exMonths").value;
+        const r = await api(`/api/admin/users/${id}/extend`, { method: "POST", body: JSON.stringify(body) });
+        if (!r.data.ok) { alert(r.data.error || t("extend.failed")); return; }
+        closeModal();
+        await Promise.all([loadUsers(), loadLog(), loadStats()]);
+      });
+    }
 
     createForm.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -284,14 +815,17 @@
       const { res, data } = await api("/api/admin/users", { method: "POST", body: JSON.stringify(body) });
       btn.disabled = false;
       if (!res.ok || !data.ok) {
-        flash(createFlash, data.error || "Create failed", false);
+        flash(createFlash, data.error || t("create.failed"), false);
         return;
       }
-      flash(createFlash, `Created ${data.user.email} — key ${data.user.license_key}${data.temp_password ? `, temp pw ${data.temp_password}` : ""}`, true);
+      const m = showSecretModal(t("created.title"),
+        `<p>${esc(data.user.email)}</p>
+         <div class="secret-box">${t("created.key", { key: esc(data.user.license_key) })}</div>
+         ${data.temp_password ? `<p class="flash is-ok">${t("created.tmp", { pw: esc(data.temp_password) })}</p>` : ""}`);
+      m.setText(data.user.license_key);
       createForm.reset();
       document.getElementById("cSend").checked = true;
-      await loadUsers();
-      await loadLog();
+      await Promise.all([loadUsers(), loadLog(), loadStats()]);
     });
 
     document.getElementById("navLogout").addEventListener("click", async () => {
@@ -303,7 +837,8 @@
     const revokeFlash = document.getElementById("revokeFlash");
     revokeForm.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const revoke = e.submitter && e.submitter.dataset.act === "restore" ? false : true;      const query = document.getElementById("rQuery").value.trim();
+      const revoke = e.submitter && e.submitter.dataset.act === "restore" ? false : true;
+      const query = document.getElementById("rQuery").value.trim();
       const body = { revoke };
       if (query.includes("@")) body.email = query;
       else body.license_key = query;
@@ -312,24 +847,96 @@
       const { res, data } = await api("/api/admin/revoke", { method: "POST", body: JSON.stringify(body) });
       btn.forEach((b) => (b.disabled = false));
       if (!res.ok || !data.ok) {
-        flash(revokeFlash, data.error || "Request failed", false);
+        flash(revokeFlash, data.error || t("req.failed"), false);
         return;
       }
-      flash(revokeFlash, `${revoke ? "Revoked" : "Restored"} ${data.email} (#${data.user_id})`, true);
+      flash(revokeFlash, t(revoke ? "flash.revoked" : "flash.restored", { email: data.email, id: data.user_id }), true);
       document.getElementById("rQuery").value = "";
-      await loadUsers();
-      await loadLog();
+      await Promise.all([loadUsers(), loadLog(), loadStats()]);
     });
+
+    let searchTimer = null;
+    searchBox.addEventListener("input", () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => { page = 1; loadUsers(); }, 250);
+    });
+    pagePrev.addEventListener("click", () => { if (page > 1) { page--; loadUsers(); } });
+    pageNext.addEventListener("click", () => { if (page < pages) { page++; loadUsers(); } });
+
+    async function loadTfa() {
+      const panel = document.getElementById("tfaPanel");
+      const { data } = await api("/api/admin/2fa/status");
+      if (!data.ok) { panel.innerHTML = `<p class="flash is-error">${t("tfa.err")}</p>`; return; }
+      if (data.enabled) {
+        panel.innerHTML = `<p class="flash is-ok">${t("tfa.enabled")}</p>
+          <button class="btn-mini is-danger" id="tfaDisable">${t("tfa.disable")}</button>`;
+        document.getElementById("tfaDisable").addEventListener("click", () => {
+          modal(t("tfa.disableTitle"),
+            `<div class="checkout__field"><label>${t("tfa.code")}</label>
+              <input id="tfaCode" type="text" inputmode="numeric" maxlength="6" placeholder="${t("tfa.code6")}" /></div>`,
+            `<button class="checkout__submit is-danger" type="button" data-m="ok">${t("dis")}</button>
+             <button class="checkout__submit" type="button" data-m="cancel" style="background:#2a2a2a;color:#f5f5f5">${t("modal.cancel")}</button>`);
+          document.getElementById("modalActions").querySelector("[data-m=cancel]").addEventListener("click", closeModal);
+          document.getElementById("modalActions").querySelector("[data-m=ok]").addEventListener("click", async () => {
+            const r = await api("/api/admin/2fa/disable", {
+              method: "POST", body: JSON.stringify({ code: document.getElementById("tfaCode").value.trim() }),
+            });
+            if (!r.data.ok) { alert(r.data.error || t("failed")); return; }
+            closeModal();
+            loadTfa();
+          });
+        });
+      } else {
+        panel.innerHTML = `<p class="flash is-error">${t("tfa.off")}</p>
+          <button class="btn-mini" id="tfaSetup">${t("tfa.setup")}</button>`;
+        document.getElementById("tfaSetup").addEventListener("click", async () => {
+          const r = await api("/api/admin/2fa/setup", { method: "POST" });
+          if (!r.data.ok) { alert(r.data.error || t("failed")); return; }
+          modal(t("tfa.setupTitle"),
+            `<p style="font-family:var(--mono);font-size:13px;color:var(--text-secondary)">
+               ${t("tfa.s1")}<br/>
+               ${t("tfa.s2")}</p>
+             <div class="secret-box">${esc(r.data.secret)}</div>
+             <div class="secret-box" style="font-size:11px">${esc(r.data.otpauth_url)}</div>
+             <p style="font-family:var(--mono);font-size:13px;color:var(--text-secondary)">${t("tfa.s3")}</p>
+             <div class="checkout__field"><label>${t("tfa.verify")}</label>
+               <input id="tfaCode" type="text" inputmode="numeric" maxlength="6" placeholder="${t("tfa.code6")}" /></div>`,
+            `<button class="checkout__submit" type="button" data-m="ok">${t("tfa.enable")}</button>
+             <button class="checkout__submit" type="button" data-m="cancel" style="background:#2a2a2a;color:#f5f5f5">${t("modal.cancel")}</button>`);
+          document.getElementById("modalActions").querySelector("[data-m=cancel]").addEventListener("click", closeModal);
+          document.getElementById("modalActions").querySelector("[data-m=ok]").addEventListener("click", async () => {
+            const en = await api("/api/admin/2fa/enable", {
+              method: "POST", body: JSON.stringify({ code: document.getElementById("tfaCode").value.trim() }),
+            });
+            if (!en.data.ok) { alert(en.data.error || t("failed")); return; }
+            closeModal();
+            loadTfa();
+          });
+        });
+      }
+    }
 
     (async () => {
       const { res, data } = await api("/api/me");
-      if (!res.ok || !data.ok || data.user.role !== "admin") {
+      if (!res.ok || !data.ok || !data.user.admin) {
         window.location.href = "/account.html";
         return;
       }
-      document.getElementById("adminWho").textContent =
-        `Signed in as ${data.user.email} — role ${data.user.role}`;
-      await Promise.all([loadUsers(), loadLog()]);
+      const who = t("who", { email: data.user.email, role: data.user.role });
+      adminWho.dataset.who = who;
+      adminWho.textContent = who;
+
+      let saved;
+      try { saved = localStorage.getItem("easybundle-lang"); } catch (_) {}
+      if (saved && I18N[saved]) {
+        setLang(saved);
+      } else if (navigator.language && navigator.language.startsWith("ru")) {
+        setLang("ru");
+      } else {
+        setLang("en");
+      }
+      applyI18n();
+      await Promise.all([loadUsers(), loadLog(), loadStats(), loadTfa()]);
     })();
   </script>
 </body>

@@ -931,6 +931,16 @@ a { color: inherit; text-decoration: none; }
 .checkout__submit:hover:not(:disabled) {
   filter: brightness(1.06);
 }
+[hidden] {
+  display: none !important;
+}
+.admin-link {
+  margin-top: 12px;
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  line-height: 44px;
+}
 .checkout__note {
   margin: 0;
   font-size: 12px;
