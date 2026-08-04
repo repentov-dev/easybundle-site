@@ -597,13 +597,11 @@ window.addEventListener("scroll", onScroll, { passive: true });
       "nav.account": "Account",
       "buy.eyebrow": "EASYBUNDLE",
       "buy.title": "Get a free trial",
-      "buy.includes": "— all five plugins, free for 3 months",
+      "buy.includes": "all five plugins, free for 3 months",
       "buy.first": "First name",
       "buy.last": "Last name",
       "buy.email": "Email",
-      "buy.company": "Company (optional)",
       "buy.country": "Country",
-      "buy.vat": "VAT / Tax ID (opt.)",
       "buy.terms": "I agree to the license terms. One seat, personal use, no redistribution.",
       "buy.note": "Register and we'll email your account password and a license key valid for a free 3-month trial.",
       "buy.submit": "Get my free trial",
@@ -659,13 +657,11 @@ window.addEventListener("scroll", onScroll, { passive: true });
       "nav.account": "Кабинет",
       "buy.eyebrow": "EASYBUNDLE",
       "buy.title": "Бесплатный триал",
-      "buy.includes": "— все пять плагинов, бесплатно на 3 месяца",
+      "buy.includes": "все пять плагинов, бесплатно на 3 месяца",
       "buy.first": "Имя",
       "buy.last": "Фамилия",
       "buy.email": "Email",
-      "buy.company": "Компания (необяз.)",
       "buy.country": "Страна",
-      "buy.vat": "VAT / ИНН (необяз.)",
       "buy.terms": "Согласен с условиями лицензии. Один seat, личное использование, без редистрибуции.",
       "buy.note": "Зарегистрируйся — пришлём на email пароль от кабинета и ключ лицензии, действующий 3 месяца бесплатно.",
       "buy.submit": "Получить бесплатный триал",
@@ -789,6 +785,45 @@ window.addEventListener("scroll", onScroll, { passive: true });
     if (st) st.tapped = false;
   }
 
+  // Edge fade only where a button is actually cut off — a fully-visible
+  // button is never dimmed. Mask is updated on scroll / resize / resize.
+  const railMenu = document.getElementById("railMenu");
+  function updateNavMask() {
+    if (!railMenu) return;
+    if (!isMobileLang()) {
+      railMenu.style.webkitMaskImage = "";
+      railMenu.style.maskImage = "";
+      return;
+    }
+    const max = railMenu.scrollWidth - railMenu.clientWidth;
+    if (max <= 0) {
+      railMenu.style.webkitMaskImage = "";
+      railMenu.style.maskImage = "";
+      return;
+    }
+    const pad = 32;
+    const left = railMenu.scrollLeft > 2;
+    const right = railMenu.scrollLeft < max - 2;
+    let mask = "";
+    if (left && right) {
+      mask = `linear-gradient(to right, transparent 0, #000 ${pad}px, #000 calc(100% - ${pad}px), transparent 100%)`;
+    } else if (left) {
+      mask = `linear-gradient(to right, transparent 0, #000 ${pad}px, #000 100%)`;
+    } else if (right) {
+      mask = `linear-gradient(to right, #000 0, #000 calc(100% - ${pad}px), transparent 100%)`;
+    }
+    railMenu.style.webkitMaskImage = mask;
+    railMenu.style.maskImage = mask;
+  }
+
+  if (railMenu) {
+    railMenu.addEventListener("scroll", updateNavMask, { passive: true });
+    window.addEventListener("resize", updateNavMask);
+    window.addEventListener("load", updateNavMask);
+    document.fonts && document.fonts.ready && document.fonts.ready.then(updateNavMask);
+    updateNavMask();
+  }
+
   if (langSwitchEl) {
     document.addEventListener("pointerdown", (e) => {
       if (isMobileLang() && langSwitchEl.classList.contains("is-open") && !langSwitchEl.contains(e.target)) {
@@ -855,9 +890,7 @@ window.addEventListener("scroll", onScroll, { passive: true });
         first_name: String(fd.get("first_name") || "").trim(),
         last_name: String(fd.get("last_name") || "").trim(),
         email: String(fd.get("email") || "").trim(),
-        company: String(fd.get("company") || "").trim(),
         country: String(fd.get("country") || "").trim(),
-        vat: String(fd.get("vat") || "").trim(),
         terms: fd.get("terms") === "on",
       };
 

@@ -418,9 +418,7 @@ def parse_purchase(data: dict) -> tuple[dict | None, str | None]:
     first = (data.get("first_name") or "").strip()
     last = (data.get("last_name") or "").strip()
     email = (data.get("email") or "").strip().lower()
-    company = (data.get("company") or "").strip() or None
     country = (data.get("country") or "").strip().upper()
-    vat = (data.get("vat") or "").strip() or None
     terms = bool(data.get("terms"))
 
     if not first or not last:
@@ -436,9 +434,7 @@ def parse_purchase(data: dict) -> tuple[dict | None, str | None]:
         "first_name": first,
         "last_name": last,
         "email": email,
-        "company": company,
         "country": country,
-        "vat": vat,
     }, None
 
 
@@ -581,10 +577,10 @@ def register():
             """
             INSERT INTO users (
               email_hash, email_enc, password_hash,
-              first_name_enc, last_name_enc, company_enc, country_enc, vat_enc,
+              first_name_enc, last_name_enc, country_enc,
               license_key_hash, license_key_enc, license_payload_enc,
               role, revoked, expires_at, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', 0, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', 0, ?, ?)
             """,
             (
                 email_hash(parsed["email"]),
@@ -592,9 +588,7 @@ def register():
                 password_hash,
                 encrypt_str(parsed["first_name"]),
                 encrypt_str(parsed["last_name"]),
-                encrypt_str(parsed["company"]),
                 encrypt_str(parsed["country"]),
-                encrypt_str(parsed["vat"]),
                 license_key_hash(license_key),
                 encrypt_str(license_key),
                 encrypt_str(license_payload),

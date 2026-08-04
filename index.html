@@ -161,7 +161,7 @@
       <button class="checkout__close" type="button" aria-label="Close" data-checkout-close>&times;</button>
       <p class="checkout__eyebrow" data-i18n="buy.eyebrow">EASYBUNDLE</p>
       <h2 class="checkout__title" id="checkoutTitle" data-i18n="buy.title">Get a free trial</h2>
-      <p class="checkout__price" data-i18n="buy.includes">— all five plugins, free for 3 months</p>
+      <p class="checkout__price" data-i18n="buy.includes">all five plugins, free for 3 months</p>
 
       <form class="checkout__form" id="checkoutForm" novalidate>
         <div class="checkout__row checkout__row--2">
@@ -179,31 +179,21 @@
           <input id="buyEmail" name="email" type="email" autocomplete="email" required />
         </div>
         <div class="checkout__field">
-          <label for="buyCompany" data-i18n="buy.company">Company <span style="opacity:.5">(optional)</span></label>
-          <input id="buyCompany" name="company" autocomplete="organization" />
-        </div>
-        <div class="checkout__row checkout__row--2">
-          <div class="checkout__field">
-            <label for="buyCountry" data-i18n="buy.country">Country</label>
-            <select id="buyCountry" name="country" required>
-              <option value="">—</option>
-              <option value="RU" data-en="Russia" data-ru="Россия">Russia</option>
-              <option value="US" data-en="United States" data-ru="США">United States</option>
-              <option value="GB" data-en="United Kingdom" data-ru="Великобритания">United Kingdom</option>
-              <option value="DE" data-en="Germany" data-ru="Германия">Germany</option>
-              <option value="FR" data-en="France" data-ru="Франция">France</option>
-              <option value="NL" data-en="Netherlands" data-ru="Нидерланды">Netherlands</option>
-              <option value="PL" data-en="Poland" data-ru="Польша">Poland</option>
-              <option value="UA" data-en="Ukraine" data-ru="Украина">Ukraine</option>
-              <option value="BY" data-en="Belarus" data-ru="Беларусь">Belarus</option>
-              <option value="KZ" data-en="Kazakhstan" data-ru="Казахстан">Kazakhstan</option>
-              <option value="OTHER" data-en="Other" data-ru="Другое">Other</option>
-            </select>
-          </div>
-          <div class="checkout__field">
-            <label for="buyVat" data-i18n="buy.vat">VAT / Tax ID <span style="opacity:.5">(opt.)</span></label>
-            <input id="buyVat" name="vat" autocomplete="off" />
-          </div>
+          <label for="buyCountry" data-i18n="buy.country">Country</label>
+          <select id="buyCountry" name="country" required>
+            <option value="">—</option>
+            <option value="RU" data-en="Russia" data-ru="Россия">Russia</option>
+            <option value="US" data-en="United States" data-ru="США">United States</option>
+            <option value="GB" data-en="United Kingdom" data-ru="Великобритания">United Kingdom</option>
+            <option value="DE" data-en="Germany" data-ru="Германия">Germany</option>
+            <option value="FR" data-en="France" data-ru="Франция">France</option>
+            <option value="NL" data-en="Netherlands" data-ru="Нидерланды">Netherlands</option>
+            <option value="PL" data-en="Poland" data-ru="Польша">Poland</option>
+            <option value="UA" data-en="Ukraine" data-ru="Украина">Ukraine</option>
+            <option value="BY" data-en="Belarus" data-ru="Беларусь">Belarus</option>
+            <option value="KZ" data-en="Kazakhstan" data-ru="Казахстан">Kazakhstan</option>
+            <option value="OTHER" data-en="Other" data-ru="Другое">Other</option>
+          </select>
         </div>
         <label class="checkout__check">
           <input type="checkbox" name="terms" required />
